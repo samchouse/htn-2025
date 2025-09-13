@@ -1,9 +1,9 @@
 import os
 
 from doc_processing import DocumentProcessor
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.routing import APIRoute
-from reconciliation_agent import ReconciliationAgent
+from reconciliation_agent import MatchStatus, ReconciliationAgent
 from scalar_fastapi import get_scalar_api_reference
 
 app = FastAPI(title="HTN API", version="1.0.0")
@@ -21,6 +21,7 @@ document_processor = DocumentProcessor(openai_api_key)
 async def reconcile_files(
     bank_statement: UploadFile = File(..., description="CSV bank statement file"),
     general_ledger: UploadFile = File(..., description="CSV general ledger file"),
+    session_id: str | None = None,
 ):
     # Validate bank statement file
     if not bank_statement.filename.endswith(".csv"):
@@ -35,9 +36,9 @@ async def reconcile_files(
         bank_content = await bank_statement.read()
         gl_content = await general_ledger.read()
 
-        # Process reconciliation using the agent
+        # Process reconciliation using the enhanced agent
         reconciliation_result = reconciliation_agent.process_reconciliation(
-            bank_content, gl_content
+            bank_content, gl_content, session_id
         )
 
         return {
@@ -50,6 +51,168 @@ async def reconcile_files(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error processing reconciliation: {str(e)}"
+        ) from e
+
+
+@app.get("/reconcile/session/{session_id}")
+async def get_reconciliation_session(session_id: str):
+    """Get reconciliation session details"""
+    try:
+        session = reconciliation_agent.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        return {
+            "session_id": session.session_id,
+            "agent_state": session.agent_state,
+            "iteration_count": session.iteration_count,
+            "created_at": session.created_at,
+            "updated_at": session.updated_at,
+            "matches": [match.model_dump() for match in session.matches],
+            "agent_thoughts": [
+                thought.model_dump() for thought in session.agent_thoughts
+            ],
+            "user_feedback": session.user_feedback,
+            "processing_notes": session.processing_notes,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error retrieving session: {str(e)}"
+        ) from e
+
+
+@app.post("/reconcile/session/{session_id}/match/{bank_index}/status")
+async def update_match_status(
+    session_id: str,
+    bank_index: int,
+    status: MatchStatus = Body(..., description="New match status"),
+):
+    """Update the status of a specific match"""
+    try:
+        success = reconciliation_agent.update_match_status(
+            session_id, bank_index, status
+        )
+        if not success:
+            raise HTTPException(status_code=404, detail="Match not found")
+
+        return {
+            "message": "Match status updated successfully",
+            "session_id": session_id,
+            "bank_index": bank_index,
+            "status": status,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error updating match status: {str(e)}"
+        ) from e
+
+
+@app.get("/reconcile/session/{session_id}/match/{bank_index}/documents")
+async def find_document_matches(session_id: str, bank_index: int):
+    """Find document metadata that matches a bank entry"""
+    try:
+        matching_docs = reconciliation_agent.find_document_matches(
+            session_id, bank_index
+        )
+
+        return {
+            "session_id": session_id,
+            "bank_index": bank_index,
+            "matching_documents": matching_docs,
+            "total_found": len(matching_docs),
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error finding document matches: {str(e)}"
+        ) from e
+
+
+@app.post("/reconcile/session/{session_id}/match/{bank_index}/link-document")
+async def link_document_to_match(
+    session_id: str,
+    bank_index: int,
+    document_path: str = Body(..., description="Path to the document to link"),
+):
+    """Link a document to a specific match"""
+    try:
+        session = reconciliation_agent.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Find the match and add the document to linked_documents
+        for match in session.matches:
+            if match.bank_index == bank_index:
+                if document_path not in match.linked_documents:
+                    match.linked_documents.append(document_path)
+                    reconciliation_agent._save_session(session)
+
+                return {
+                    "message": "Document linked successfully",
+                    "session_id": session_id,
+                    "bank_index": bank_index,
+                    "linked_documents": match.linked_documents,
+                }
+
+        raise HTTPException(status_code=404, detail="Match not found")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error linking document: {str(e)}"
+        ) from e
+
+
+@app.post("/reconcile/session/{session_id}/continue")
+async def continue_agent_processing(
+    session_id: str,
+    user_feedback: str | None = Body(None, description="User feedback for the agent"),
+):
+    """Continue the agent's processing based on current state and user feedback"""
+    try:
+        result = reconciliation_agent.continue_agent_processing(
+            session_id, user_feedback
+        )
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error continuing agent processing: {str(e)}"
+        ) from e
+
+
+@app.post("/reconcile/session/{session_id}/finalize")
+async def finalize_reconciliation(session_id: str):
+    """Finalize reconciliation by processing all verified matches"""
+    try:
+        session = reconciliation_agent.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Get all verified matches
+        verified_matches = [
+            match for match in session.matches if match.status == MatchStatus.VERIFIED
+        ]
+
+        # Process verified matches (remove from working datasets)
+        processed_count = 0
+        for match in verified_matches:
+            if match.gl_index is not None:
+                # Mark as processed (in a real system, you'd update your database)
+                processed_count += 1
+
+        # Update session status
+        session.agent_state = "completed"
+        reconciliation_agent._save_session(session)
+
+        return {
+            "message": "Reconciliation finalized",
+            "session_id": session_id,
+            "processed_matches": processed_count,
+            "total_verified": len(verified_matches),
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error finalizing reconciliation: {str(e)}"
         ) from e
 
 

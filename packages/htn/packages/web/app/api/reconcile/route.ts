@@ -1,30 +1,40 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:8000";
-
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
+    const bankStatement = formData.get("bank_statement") as File;
+    const generalLedger = formData.get("general_ledger") as File;
 
-    const response = await fetch(`${API_BASE_URL}/reconcile`, {
+    if (!bankStatement || !generalLedger) {
+      return NextResponse.json(
+        { error: "Both bank statement and general ledger files are required" },
+        { status: 400 },
+      );
+    }
+
+    // Forward the request to the Python API
+    const pythonApiUrl = process.env.PYTHON_API_URL || "http://localhost:8000";
+
+    const forwardFormData = new FormData();
+    forwardFormData.append("bank_statement", bankStatement);
+    forwardFormData.append("general_ledger", generalLedger);
+
+    const response = await fetch(`${pythonApiUrl}/reconcile`, {
       method: "POST",
-      body: formData,
+      body: forwardFormData,
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      return NextResponse.json(
-        { error: `API Error: ${errorText}` },
-        { status: response.status },
-      );
+      throw new Error(`Python API error: ${response.status}`);
     }
 
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("API route error:", error);
+    console.error("Reconciliation error:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Failed to process reconciliation" },
       { status: 500 },
     );
   }

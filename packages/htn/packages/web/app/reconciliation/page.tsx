@@ -547,6 +547,12 @@ export default function ReconciliationPage() {
             >
               Bulk Document Upload
             </button>
+            <a
+              href="/reconciliation/agent"
+              className="px-6 py-3 rounded-lg font-medium transition-colors bg-purple-600 text-white hover:bg-purple-700"
+            >
+              🤖 AI Agent Chat
+            </a>
           </div>
         </div>
 
