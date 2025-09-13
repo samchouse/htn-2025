@@ -1,13 +1,12 @@
-'use client';
+"use client";
 
-import { useState, useMemo } from 'react';
 import {
-  useReactTable,
-  getCoreRowModel,
-  flexRender,
-  createColumnHelper,
   type ColumnDef,
-} from '@tanstack/react-table';
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+import { useMemo, useState } from "react";
 
 interface BankTransaction {
   date: string;
@@ -51,15 +50,20 @@ interface ReconciliationResult {
   };
 }
 
-
 function DataTable<T>({
   data,
   columns,
-  title
+  title,
+  matchedIndices = new Set(),
+  side,
+  result,
 }: {
   data: T[];
   columns: ColumnDef<T, any>[];
   title: string;
+  matchedIndices?: Set<number>;
+  side: "bank" | "ledger";
+  result?: ReconciliationResult | null;
 }) {
   const table = useReactTable({
     data,
@@ -67,40 +71,78 @@ function DataTable<T>({
     getCoreRowModel: getCoreRowModel(),
   });
 
+  const getRowClassName = (rowIndex: number) => {
+    const baseClasses = "border-b border-slate-600";
+
+    if (matchedIndices.has(rowIndex)) {
+      return `${baseClasses} bg-green-700/50 hover:bg-green-600/60`;
+    }
+    return `${baseClasses} bg-red-800/50 hover:bg-red-700/60`;
+  };
+
+  const getMatchForRow = (rowIndex: number) => {
+    if (!result || side === "ledger") return null;
+    return result.matched_transactions.find(
+      (match) => match.bank_index === rowIndex,
+    );
+  };
+
+  const roundedClass =
+    side === "bank"
+      ? "rounded-l-3xl"
+      : "rounded-r-3xl border-l-2 border-slate-600";
+
   return (
-    <div className="flex-1 border border-gray-300 rounded-lg overflow-hidden">
-      <div className="bg-gray-50 px-4 py-2 font-semibold border-b border-gray-300">
-        {title}
+    <div className={`flex-1 ${roundedClass} overflow-hidden`}>
+      <div className="bg-slate-800 text-white px-6 py-4 border-b-2 border-slate-500">
+        <h2 className="text-xl font-bold">{title}</h2>
       </div>
-      <div className="overflow-auto max-h-96">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-100 sticky top-0">
+      <div className="overflow-auto max-h-[600px] bg-slate-900">
+        <table className="w-full">
+          <thead className="bg-slate-700 text-white sticky top-0">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-300"
+                    className="px-4 py-4 text-left font-semibold border-b border-slate-600 text-sm"
                   >
                     {header.isPlaceholder
                       ? null
                       : flexRender(
                           header.column.columnDef.header,
-                          header.getContext()
+                          header.getContext(),
                         )}
                   </th>
                 ))}
+                {side === "bank" && (
+                  <th className="px-4 py-4 text-left font-semibold border-b border-slate-600 text-sm w-12">
+                    ...
+                  </th>
+                )}
               </tr>
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="hover:bg-gray-50 border-b border-gray-200">
+            {table.getRowModel().rows.map((row, index) => (
+              <tr key={row.id} className={getRowClassName(index)}>
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-3 py-2 border-r border-gray-200 last:border-r-0">
+                  <td
+                    key={cell.id}
+                    className="px-4 py-4 border-r border-slate-600 last:border-r-0 text-slate-100 text-sm h-12"
+                  >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}
+                {side === "bank" && (
+                  <td className="px-4 py-4 text-slate-100 text-sm w-12 text-center h-12">
+                    {getMatchForRow(index) && (
+                      <span className="text-slate-300 font-bold text-lg cursor-pointer hover:text-white">
+                        More
+                      </span>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -111,15 +153,15 @@ function DataTable<T>({
 }
 
 function parseCSV(csvText: string): any[] {
-  const lines = csvText.split('\n').filter(line => line.trim());
+  const lines = csvText.split("\n").filter((line) => line.trim());
   if (lines.length < 2) return [];
 
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-  return lines.slice(1).map(line => {
-    const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+  const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
+  return lines.slice(1).map((line) => {
+    const values = line.split(",").map((v) => v.trim().replace(/"/g, ""));
     const row: any = {};
     headers.forEach((header, index) => {
-      row[header] = values[index] || '';
+      row[header] = values[index] || "";
     });
     return row;
   });
@@ -128,25 +170,32 @@ function parseCSV(csvText: string): any[] {
 function transformAPIResult(
   apiResult: APIReconciliationResult,
   bankData: any[],
-  glData: any[]
+  glData: any[],
 ): ReconciliationResult {
   const matched_transactions = apiResult.bank_matches
-    .filter(match => match.gl_index !== null)
-    .map(match => ({
+    .filter((match) => match.gl_index !== null)
+    .map((match) => ({
       bank_transaction: bankData[match.bank_index] || null,
-      gl_transaction: match.gl_index !== null ? glData[match.gl_index] || null : null,
+      gl_transaction:
+        match.gl_index !== null ? glData[match.gl_index] || null : null,
       confidence: match.confidence,
       bank_index: match.bank_index,
       gl_index: match.gl_index,
     }));
 
-  const matched_bank_indices = new Set(matched_transactions.map(t => t.bank_index));
+  const matched_bank_indices = new Set(
+    matched_transactions.map((t) => t.bank_index),
+  );
   const matched_gl_indices = new Set(
-    matched_transactions.map(t => t.gl_index).filter(idx => idx !== null)
+    matched_transactions.map((t) => t.gl_index).filter((idx) => idx !== null),
   );
 
-  const unmatched_bank = bankData.filter((_, index) => !matched_bank_indices.has(index));
-  const unmatched_gl = glData.filter((_, index) => !matched_gl_indices.has(index));
+  const unmatched_bank = bankData.filter(
+    (_, index) => !matched_bank_indices.has(index),
+  );
+  const unmatched_gl = glData.filter(
+    (_, index) => !matched_gl_indices.has(index),
+  );
 
   return {
     matched_transactions,
@@ -177,7 +226,7 @@ export default function ReconciliationPage() {
         const data = parseCSV(text);
         setBankData(data);
       } catch (err) {
-        setError('Error parsing bank statement file');
+        setError("Error parsing bank statement file");
         setBankData([]);
       }
     } else {
@@ -193,7 +242,7 @@ export default function ReconciliationPage() {
         const data = parseCSV(text);
         setGLData(data);
       } catch (err) {
-        setError('Error parsing general ledger file');
+        setError("Error parsing general ledger file");
         setGLData([]);
       }
     } else {
@@ -204,7 +253,7 @@ export default function ReconciliationPage() {
   const bankColumns = useMemo(() => {
     if (bankData.length === 0) return [];
     const keys = Object.keys(bankData[0]);
-    return keys.map(key => ({
+    return keys.map((key) => ({
       accessorKey: key,
       header: key,
       cell: (info: any) => info.getValue(),
@@ -214,7 +263,7 @@ export default function ReconciliationPage() {
   const glColumns = useMemo(() => {
     if (glData.length === 0) return [];
     const keys = Object.keys(glData[0]);
-    return keys.map(key => ({
+    return keys.map((key) => ({
       accessorKey: key,
       header: key,
       cell: (info: any) => info.getValue(),
@@ -225,7 +274,7 @@ export default function ReconciliationPage() {
     e.preventDefault();
 
     if (!bankFile || !glFile) {
-      setError('Please select both bank statement and general ledger files');
+      setError("Please select both bank statement and general ledger files");
       return;
     }
 
@@ -234,11 +283,11 @@ export default function ReconciliationPage() {
 
     try {
       const formData = new FormData();
-      formData.append('bank_statement', bankFile);
-      formData.append('general_ledger', glFile);
+      formData.append("bank_statement", bankFile);
+      formData.append("general_ledger", glFile);
 
-      const response = await fetch('/api/reconcile', {
-        method: 'POST',
+      const response = await fetch("/api/reconcile", {
+        method: "POST",
         body: formData,
       });
 
@@ -253,147 +302,131 @@ export default function ReconciliationPage() {
       const transformedResult = transformAPIResult(apiResult, bankData, glData);
       setResult(transformedResult);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="container mx-auto p-6 max-w-7xl">
-      <h1 className="text-3xl font-bold mb-6">Bank Reconciliation</h1>
+    <div className="min-h-screen bg-black p-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-white mb-6">
+            Bank Reconciliation
+          </h1>
 
-      <form onSubmit={handleSubmit} className="mb-6 p-4 bg-gray-50 rounded-lg">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label htmlFor="bank-file" className="block text-sm font-medium text-gray-700 mb-2">
-              Bank Statement (CSV)
-            </label>
-            <input
-              id="bank-file"
-              type="file"
-              accept=".csv"
-              onChange={(e) => handleBankFileChange(e.target.files?.[0] || null)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="gl-file" className="block text-sm font-medium text-gray-700 mb-2">
-              General Ledger (CSV)
-            </label>
-            <input
-              id="gl-file"
-              type="file"
-              accept=".csv"
-              onChange={(e) => handleGLFileChange(e.target.files?.[0] || null)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={isLoading || !bankFile || !glFile}
-          className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        >
-          {isLoading ? 'Processing...' : 'Reconcile Files'}
-        </button>
-      </form>
-
-      {error && (
-        <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-          {error}
-        </div>
-      )}
-
-      {(bankData.length > 0 || glData.length > 0) && (
-        <div className="flex gap-4 mb-6">
-          <DataTable
-            data={bankData}
-            columns={bankColumns}
-            title="Bank Statement"
-          />
-          <DataTable
-            data={glData}
-            columns={glColumns}
-            title="General Ledger"
-          />
-        </div>
-      )}
-
-      {result && (
-        <div className="space-y-6">
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h2 className="text-lg font-semibold mb-2">Reconciliation Summary</h2>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <span className="font-medium">Matched:</span> {result.summary.total_matched}
+          {/* File Upload Form */}
+          <div className="bg-slate-800 rounded-2xl p-6 border border-slate-600">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="space-y-3">
+                <label
+                  htmlFor="bank-file"
+                  className="block text-lg font-medium text-white"
+                >
+                  Bank Statement (CSV)
+                </label>
+                <div className="relative">
+                  <input
+                    id="bank-file"
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) =>
+                      handleBankFileChange(e.target.files?.[0] || null)
+                    }
+                    className="w-full px-4 py-3 border border-slate-500 rounded-lg bg-slate-700 text-white file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-600 file:text-white hover:file:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                  />
+                  {bankFile && (
+                    <div className="mt-2 text-sm text-slate-300">
+                      Selected: {bankFile.name}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div>
-                <span className="font-medium">Unmatched Bank:</span> {result.summary.total_unmatched_bank}
-              </div>
-              <div>
-                <span className="font-medium">Unmatched GL:</span> {result.summary.total_unmatched_gl}
+              <div className="space-y-3">
+                <label
+                  htmlFor="gl-file"
+                  className="block text-lg font-medium text-white"
+                >
+                  General Ledger (CSV)
+                </label>
+                <div className="relative">
+                  <input
+                    id="gl-file"
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) =>
+                      handleGLFileChange(e.target.files?.[0] || null)
+                    }
+                    className="w-full px-4 py-3 border border-slate-500 rounded-lg bg-slate-700 text-white file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-600 file:text-white hover:file:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                  />
+                  {glFile && (
+                    <div className="mt-2 text-sm text-slate-300">
+                      Selected: {glFile.name}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isLoading || !bankFile || !glFile}
+              className="bg-blue-600 text-white px-8 py-3 rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors duration-200 min-w-[140px]"
+            >
+              {isLoading ? "Processing..." : "Reconcile Files"}
+            </button>
           </div>
 
-          {result.matched_transactions.length > 0 && (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-              <h3 className="text-lg font-semibold mb-4 text-green-800">Matched Transactions</h3>
-              <div className="space-y-4">
-                {result.matched_transactions.map((match, index) => (
-                  <div key={index} className="p-3 bg-white border border-green-300 rounded-md">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-green-700">
-                        Match {index + 1} (Confidence: {(match.confidence * 100).toFixed(1)}%)
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <div className="font-medium text-gray-700 mb-1">Bank Transaction:</div>
-                        <div className="bg-gray-50 p-2 rounded text-xs">
-                          {JSON.stringify(match.bank_transaction, null, 2)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="font-medium text-gray-700 mb-1">GL Transaction:</div>
-                        <div className="bg-gray-50 p-2 rounded text-xs">
-                          {JSON.stringify(match.gl_transaction, null, 2)}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {error && (
+            <div className="mt-6 p-4 bg-red-900/30 border border-red-600/50 text-red-200 rounded-lg">
+              {error}
             </div>
           )}
+        </div>
 
-          <div className="flex gap-4">
-            {result.unmatched_bank.length > 0 && (
-              <DataTable
-                data={result.unmatched_bank}
-                columns={bankColumns}
-                title={`Unmatched Bank Transactions (${result.unmatched_bank.length})`}
-              />
-            )}
-            {result.unmatched_gl.length > 0 && (
-              <DataTable
-                data={result.unmatched_gl}
-                columns={glColumns}
-                title={`Unmatched GL Transactions (${result.unmatched_gl.length})`}
-              />
-            )}
+        {/* Main Tables - NO GAP BETWEEN THEM */}
+        {(bankData.length > 0 || glData.length > 0) && (
+          <div className="flex rounded-3xl overflow-hidden border-2 border-slate-500">
+            <DataTable
+              data={bankData}
+              columns={bankColumns}
+              title="Bank statement"
+              matchedIndices={
+                result
+                  ? new Set(
+                      result.matched_transactions.map((t) => t.bank_index),
+                    )
+                  : new Set()
+              }
+              side="bank"
+              result={result}
+            />
+            <DataTable
+              data={glData}
+              columns={glColumns}
+              title="Ledger"
+              matchedIndices={
+                result
+                  ? new Set(
+                      result.matched_transactions
+                        .map((t) => t.gl_index)
+                        .filter((idx) => idx !== null),
+                    )
+                  : new Set()
+              }
+              side="ledger"
+            />
           </div>
-        </div>
-      )}
+        )}
 
-      {bankData.length === 0 && glData.length === 0 && !isLoading && (
-        <div className="text-center text-gray-500 mt-8">
-          Upload your bank statement and general ledger files to view the data
-        </div>
-      )}
+        {bankData.length === 0 && glData.length === 0 && !isLoading && (
+          <div className="text-center text-slate-400 mt-16 text-lg">
+            Upload your bank statement and general ledger files to view the data
+          </div>
+        )}
+      </div>
     </div>
   );
 }

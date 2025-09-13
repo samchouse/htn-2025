@@ -15,7 +15,9 @@ export default function Home() {
         />
         <div className="text-center sm:text-left">
           <h1 className="text-3xl font-bold mb-4">Coalesc</h1>
-          <p className="text-lg text-gray-600 mb-6">Financial reconciliation platform</p>
+          <p className="text-lg text-gray-600 mb-6">
+            Financial reconciliation platform
+          </p>
         </div>
 
         <div className="flex gap-4 items-center flex-col sm:flex-row">
