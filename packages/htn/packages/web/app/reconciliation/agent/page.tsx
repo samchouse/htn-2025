@@ -63,6 +63,7 @@ export default function AgentReconciliationPage() {
   const [selectedMatch, setSelectedMatch] = useState<MatchDetails | null>(null);
   const [showMatchModal, setShowMatchModal] = useState(false);
   const [agentMessage, setAgentMessage] = useState<string>("");
+  const [isUpdatingMatch, setIsUpdatingMatch] = useState(false);
 
   // Fetch session details to get bank_data and gl_data
   const fetchSessionDetails = async (sessionId: string) => {
@@ -260,11 +261,60 @@ export default function AgentReconciliationPage() {
     setShowMatchModal(true);
   };
 
+  const updateMatchStatus = async (bankIndex: number, status: "approved" | "rejected") => {
+    if (!sessionId) return;
+
+    setIsUpdatingMatch(true);
+    try {
+      const response = await fetch(`/api/reconcile/session/${sessionId}/match/${bankIndex}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // Update the local session state
+      setCurrentSession((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          matches: prev.matches.map((match) =>
+            match.bank_index === bankIndex
+              ? { ...match, status: status as "pending" | "approved" | "rejected" | "verified" }
+              : match
+          ),
+        };
+      });
+
+      // Close the modal
+      setShowMatchModal(false);
+      setSelectedMatch(null);
+
+    } catch (error) {
+      console.error("Error updating match status:", error);
+      setAgentMessage(`Error updating match status: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsUpdatingMatch(false);
+    }
+  };
+
   const getRowClassName = (index: number, type: "bank" | "gl") => {
     const match =
       type === "bank" ? getMatchForBankEntry(index) : getMatchForGLEntry(index);
     if (match && match.glIndex !== null) {
-      return "bg-green-600/20 hover:bg-green-600/30 cursor-pointer border-l-4 border-green-500";
+      // Show green for high confidence matches, but don't auto-approve
+      if (match.confidence >= 0.8) {
+        return "bg-green-600/20 hover:bg-green-600/30 cursor-pointer border-l-4 border-green-500";
+      }
+      if (match.confidence >= 0.5) {
+        return "bg-yellow-600/20 hover:bg-yellow-600/30 cursor-pointer border-l-4 border-yellow-500";
+      }
+      return "bg-orange-600/20 hover:bg-orange-600/30 cursor-pointer border-l-4 border-orange-500";
     }
     return "bg-slate-800/50 hover:bg-slate-700/60";
   };
@@ -537,7 +587,13 @@ export default function AgentReconciliationPage() {
                         <td className="px-4 py-3">
                           {match ? (
                             <div className="flex items-center space-x-2">
-                              <span className="text-green-400">✓</span>
+                              {match.status === "approved" ? (
+                                <span className="text-green-400">✓</span>
+                              ) : match.status === "rejected" ? (
+                                <span className="text-red-400">✗</span>
+                              ) : (
+                                <span className="text-yellow-400">?</span>
+                              )}
                               <span className="text-slate-300">GL {match.glIndex}</span>
                               <span className="text-slate-400 text-xs">
                                 ({(match.confidence * 100).toFixed(0)}%)
@@ -592,7 +648,13 @@ export default function AgentReconciliationPage() {
                         <td className="px-4 py-3">
                           {match ? (
                             <div className="flex items-center space-x-2">
-                              <span className="text-green-400">✓</span>
+                              {match.status === "approved" ? (
+                                <span className="text-green-400">✓</span>
+                              ) : match.status === "rejected" ? (
+                                <span className="text-red-400">✗</span>
+                              ) : (
+                                <span className="text-yellow-400">?</span>
+                              )}
                               <span className="text-slate-300">Bank {match.bankIndex}</span>
                               <span className="text-slate-400 text-xs">
                                 ({(match.confidence * 100).toFixed(0)}%)
@@ -613,11 +675,11 @@ export default function AgentReconciliationPage() {
       )}
 
       {/* Match Details Modal */}
-      {showMatchModal && selectedMatch && (
+      {showMatchModal && selectedMatch && currentSession && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-2xl w-full mx-4">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-semibold text-white">Match Details</h3>
+              <h3 className="text-xl font-semibold text-white">Match Review</h3>
               <button
                 type="button"
                 onClick={() => setShowMatchModal(false)}
@@ -626,27 +688,113 @@ export default function AgentReconciliationPage() {
                 ✕
               </button>
             </div>
-            <div className="space-y-4">
+            
+            <div className="space-y-6">
+              {/* Match Information */}
               <div>
                 <h4 className="text-slate-300 font-medium mb-2">Match Information</h4>
                 <div className="bg-slate-700 p-4 rounded">
-                  <p className="text-white">
-                    Bank Entry {selectedMatch.bankIndex} ↔ GL Entry {selectedMatch.glIndex}
-                  </p>
-                  <p className="text-slate-400 mt-2">
-                    Confidence: {(selectedMatch.confidence * 100).toFixed(1)}%
-                  </p>
-                  <p className="text-slate-400">
-                    Status: {selectedMatch.status}
-                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-white font-medium">Bank Entry #{selectedMatch.bankIndex}</p>
+                      <p className="text-slate-400 text-sm">Confidence: {(selectedMatch.confidence * 100).toFixed(1)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-white font-medium">GL Entry #{selectedMatch.glIndex}</p>
+                      <p className="text-slate-400 text-sm">Status: {selectedMatch.status}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
+
+              {/* Bank Statement Entry */}
               <div>
-                <h4 className="text-slate-300 font-medium mb-2">Reasoning</h4>
+                <h4 className="text-slate-300 font-medium mb-2">Bank Statement Entry</h4>
+                <div className="bg-slate-700 p-4 rounded">
+                  <div className="grid grid-cols-2 gap-4">
+                    {currentSession.bank_data[selectedMatch.bankIndex] && 
+                      Object.entries(currentSession.bank_data[selectedMatch.bankIndex]).map(([key, value]) => (
+                        <div key={key}>
+                          <span className="text-slate-400 text-sm">{key.replace(/_/g, ' ').toUpperCase()}:</span>
+                          <p className="text-white font-medium">{String(value)}</p>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* General Ledger Entry */}
+              {selectedMatch.glIndex !== null && (
+                <div>
+                  <h4 className="text-slate-300 font-medium mb-2">General Ledger Entry</h4>
+                  <div className="bg-slate-700 p-4 rounded">
+                    <div className="grid grid-cols-2 gap-4">
+                      {currentSession.gl_data[selectedMatch.glIndex] && 
+                        Object.entries(currentSession.gl_data[selectedMatch.glIndex]).map(([key, value]) => (
+                          <div key={key}>
+                            <span className="text-slate-400 text-sm">{key.replace(/_/g, ' ').toUpperCase()}:</span>
+                            <p className="text-white font-medium">{String(value)}</p>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* AI Reasoning */}
+              <div>
+                <h4 className="text-slate-300 font-medium mb-2">AI Reasoning</h4>
                 <div className="bg-slate-700 p-4 rounded">
                   <p className="text-slate-300">{selectedMatch.reasoning}</p>
                 </div>
               </div>
+
+              {/* Action Buttons */}
+              {selectedMatch.status === "pending" && (
+                <div className="flex space-x-4 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => updateMatchStatus(selectedMatch.bankIndex, "approved")}
+                    disabled={isUpdatingMatch}
+                    className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isUpdatingMatch ? "Processing..." : "✓ Approve Match"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateMatchStatus(selectedMatch.bankIndex, "rejected")}
+                    disabled={isUpdatingMatch}
+                    className="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isUpdatingMatch ? "Processing..." : "✗ Reject Match"}
+                  </button>
+                </div>
+              )}
+
+              {/* Status Display for Approved/Rejected */}
+              {selectedMatch.status !== "pending" && (
+                <div className="pt-4">
+                  <div className={`p-4 rounded-lg ${
+                    selectedMatch.status === "approved" 
+                      ? "bg-green-900/30 border border-green-500" 
+                      : "bg-red-900/30 border border-red-500"
+                  }`}>
+                    <div className="flex items-center space-x-2">
+                      {selectedMatch.status === "approved" ? (
+                        <>
+                          <span className="text-green-400 text-xl">✓</span>
+                          <span className="text-green-400 font-medium">Match Approved</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-red-400 text-xl">✗</span>
+                          <span className="text-red-400 font-medium">Match Rejected</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
