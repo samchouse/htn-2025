@@ -32,7 +32,9 @@ class AgentState(str, Enum):
 
 class BankMatchData(BaseModel):
     bank_index: int
-    gl_indexes: list[int] = Field(default_factory=list)  # List of GL entries for transaction lifecycle
+    gl_indexes: list[int] = Field(
+        default_factory=list
+    )  # List of GL entries for transaction lifecycle
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str
     status: MatchStatus = MatchStatus.PENDING
@@ -278,14 +280,25 @@ Your task is to match bank statement entries with general ledger entries. For ea
 
 Consider these factors for matching:
 1. Amount (the sum of GL entries should match the bank amount, or individual entries may match)
-2. Date proximity (within a few days is good)
+2. Date proximity (within a few days is acceptable, especially for payments that may be processed with delays)
 3. Description similarity (look for common keywords, vendor names, etc.)
 4. Transaction patterns and business logic (e.g., an invoice payment might have multiple GL entries)
+
+IMPORTANT: Payment Processing Delays
+- Bank transactions often appear 1-3 days after GL entries are recorded
+- A bank payment on Day 3 might correspond to a GL entry recorded on Day 1
+- When amounts match and descriptions are similar, but dates are 1-3 days apart, provide a LOW CONFIDENCE match (0.3-0.6)
+- This helps users identify potential matches that need manual review rather than leaving them completely unmatched
 
 For each bank entry, provide:
 - bank_index: the index of the bank entry (0-based)
 - gl_indexes: array of GL entry indexes that together represent this transaction, or empty array if no match
 - confidence: your confidence in this match (0.0 to 1.0)
+  * 0.9-1.0: Perfect match (exact amount, same date, clear description match)
+  * 0.7-0.8: High confidence (amount matches, same date, good description similarity)
+  * 0.5-0.6: Medium confidence (amount matches, date within 1-2 days, some description similarity)
+  * 0.3-0.4: Low confidence (amount matches, date within 2-3 days, weak description similarity)
+  * 0.0-0.2: Very low confidence or no match
 - reasoning: brief explanation of why these GL entries match this bank entry
 
 Examples of multi-entry matches:
@@ -293,7 +306,11 @@ Examples of multi-entry matches:
 - A deposit might match multiple revenue entries
 - An expense might match cost + tax entries
 
-Focus on high-confidence matches first. Be conservative - it's better to miss a match than to create a false positive.
+Examples of temporal discrepancies (provide low confidence matches):
+- Bank entry on 01/13/2025 for $1000 "Kings Inc. E-Trans" might match GL entry on 01/12/2025 for $1000 "Paid by Kings Inc."
+- Bank entry on 01/15/2025 for $500 "ABC Corp Payment" might match GL entry on 01/13/2025 for $500 "ABC Corp Invoice"
+
+Focus on providing low confidence matches for temporal discrepancies rather than leaving them unmatched.
 
 Return your analysis as a JSON array of match objects."""
 
@@ -303,7 +320,7 @@ Return your analysis as a JSON array of match objects."""
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a financial reconciliation expert. Analyze bank and GL data to find matches. Return structured JSON with your analysis.",
+                        "content": "You are a financial reconciliation expert. Analyze bank and GL data to find matches. Pay special attention to temporal discrepancies where bank transactions may appear 1-3 days after GL entries. Provide low confidence matches for these cases rather than leaving them unmatched. Return structured JSON with your analysis.",
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -342,13 +359,21 @@ Return your analysis as a JSON array of match objects."""
             for match_data in matches_data:
                 # Ensure confidence is a valid number
                 confidence = match_data.get("confidence", 0.0)
-                if not isinstance(confidence, (int, float)) or math.isnan(confidence) or math.isinf(confidence):
+                if (
+                    not isinstance(confidence, (int, float))
+                    or math.isnan(confidence)
+                    or math.isinf(confidence)
+                ):
                     confidence = 0.0
                 confidence = max(0.0, min(1.0, confidence))  # Clamp between 0 and 1
-                
+
                 gl_indexes = match_data.get("gl_indexes", [])
                 # Handle backward compatibility with old gl_index field
-                if not gl_indexes and "gl_index" in match_data and match_data["gl_index"] is not None:
+                if (
+                    not gl_indexes
+                    and "gl_index" in match_data
+                    and match_data["gl_index"] is not None
+                ):
                     gl_indexes = [match_data["gl_index"]]
 
                 matches.append(
@@ -415,7 +440,7 @@ Return your analysis as a JSON array of match objects."""
             "next_action": next_action,
             "matches": [match.model_dump() for match in session.matches],
         }
-        
+
         return self._clean_nan_values(result)
 
     def _execute_agent_action(

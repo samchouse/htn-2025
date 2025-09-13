@@ -51,6 +51,7 @@ interface MatchDetails {
 
 export default function AgentReconciliationPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentSession, setCurrentSession] =
     useState<ReconciliationSession | null>(null);
@@ -64,9 +65,13 @@ export default function AgentReconciliationPage() {
   const [showMatchModal, setShowMatchModal] = useState(false);
   const [agentMessage, setAgentMessage] = useState<string>("");
   const [isUpdatingMatch, setIsUpdatingMatch] = useState(false);
+  const [showDocumentUpload, setShowDocumentUpload] = useState(false);
+  const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
+  const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
 
   // Fetch session details to get bank_data and gl_data
   const fetchSessionDetails = async (sessionId: string) => {
+    setIsInitializing(true);
     try {
       const response = await fetch(`/api/reconcile/session/${sessionId}`);
       if (response.ok) {
@@ -83,6 +88,8 @@ export default function AgentReconciliationPage() {
       }
     } catch (error) {
       console.error("Error fetching session details:", error);
+    } finally {
+      setIsInitializing(false);
     }
   };
 
@@ -336,20 +343,60 @@ export default function AgentReconciliationPage() {
     }
   };
 
-  const getRowClassName = (index: number, type: "bank" | "gl") => {
-    const match =
-      type === "bank" ? getMatchForBankEntry(index) : getMatchForGLEntry(index);
-    if (match && match.glIndexes.length > 0) {
-      // Show green for high confidence matches, but don't auto-approve
-      if (match.confidence >= 0.8) {
-        return "bg-green-600/20 hover:bg-green-600/30 cursor-pointer border-l-4 border-green-500";
+  // Document upload handlers
+  const onDocumentDrop = useCallback((acceptedFiles: File[]) => {
+    const supportedFiles = acceptedFiles.filter(
+      (file) =>
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf"),
+    );
+    setUploadedDocuments((prev) => [...prev, ...supportedFiles]);
+  }, []);
+
+  const documentDropzone = useDropzone({
+    onDrop: onDocumentDrop,
+    accept: {
+      "application/pdf": [".pdf"],
+    },
+    multiple: true,
+  });
+
+  const removeDocument = (index: number) => {
+    setUploadedDocuments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadDocuments = async () => {
+    if (uploadedDocuments.length === 0) return;
+
+    setIsUploadingDocuments(true);
+    try {
+      const formData = new FormData();
+      uploadedDocuments.forEach((file, index) => {
+        formData.append(`document_${index}`, file);
+      });
+
+      const response = await fetch("/api/documents", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-      if (match.confidence >= 0.5) {
-        return "bg-yellow-600/20 hover:bg-yellow-600/30 cursor-pointer border-l-4 border-yellow-500";
-      }
-      return "bg-orange-600/20 hover:bg-orange-600/30 cursor-pointer border-l-4 border-orange-500";
+
+      await response.json();
+      setAgentMessage(
+        `Successfully uploaded ${uploadedDocuments.length} document(s) for processing.`,
+      );
+      setUploadedDocuments([]);
+      setShowDocumentUpload(false);
+    } catch (error) {
+      setAgentMessage(
+        `Error uploading documents: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsUploadingDocuments(false);
     }
-    return "bg-slate-800/50 hover:bg-slate-700/60";
   };
 
   const getStatusColor = (status: string) => {
@@ -390,80 +437,151 @@ export default function AgentReconciliationPage() {
     }
   };
 
-  const createSideBySideGroupedData = () => {
-    if (!currentSession || !currentSession.bank_data.length || !currentSession.gl_data.length) {
-      return { bankRows: [], glRows: [] };
+  const createGroupedData = () => {
+    if (
+      !currentSession ||
+      !currentSession.bank_data.length ||
+      !currentSession.gl_data.length
+    ) {
+      return [];
     }
 
     // Create array of bank transactions with their matches, sorted by date
-    const bankTransactions = currentSession.bank_data.map((bankEntry, bankIndex) => {
-      const match = getMatchForBankEntry(bankIndex);
+    const bankTransactions = currentSession.bank_data.map(
+      (bankEntry, bankIndex) => {
+        const match = getMatchForBankEntry(bankIndex);
+        return {
+          bankEntry,
+          bankIndex,
+          match,
+          date: bankEntry.date
+            ? new Date(bankEntry.date as string)
+            : new Date(0),
+        };
+      },
+    );
+
+    // Sort bank transactions by date
+    bankTransactions.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    // Create groups where each group contains a bank entry and its matching GL entries
+    const groups = bankTransactions.map((bankTransaction) => {
+      const glEntries: Array<{
+        glIndex: number;
+        data: Record<string, unknown>;
+        match: MatchDetails | null;
+      }> = [];
+
+      // Only include GL entries if the match is not rejected
+      if (
+        bankTransaction.match &&
+        bankTransaction.match.glIndexes.length > 0 &&
+        bankTransaction.match.status !== "rejected"
+      ) {
+        bankTransaction.match.glIndexes.forEach((glIndex) => {
+          const glEntry = currentSession.gl_data[glIndex];
+          const glMatch = getMatchForGLEntry(glIndex);
+          glEntries.push({
+            glIndex,
+            data: glEntry,
+            match: glMatch,
+          });
+        });
+      }
+
       return {
-        bankEntry,
-        bankIndex,
-        match,
-        date: bankEntry.date ? new Date(bankEntry.date as string) : new Date(0)
+        bankEntry: bankTransaction.bankEntry,
+        bankIndex: bankTransaction.bankIndex,
+        bankMatch: bankTransaction.match,
+        glEntries,
+        // Determine group styling based on match status and confidence
+        groupStyle:
+          bankTransaction.match &&
+          bankTransaction.match.glIndexes.length > 0 &&
+          bankTransaction.match.status !== "rejected"
+            ? bankTransaction.match.status === "approved"
+              ? "approved"
+              : bankTransaction.match.confidence >= 0.8
+                ? "high-confidence"
+                : bankTransaction.match.confidence >= 0.5
+                  ? "medium-confidence"
+                  : "low-confidence"
+            : "no-match",
+        isUnmatchedGl: false,
+        isRejected: bankTransaction.match?.status === "rejected",
+        isUnmatchedBank: false,
       };
     });
 
-    // Sort by date
-    bankTransactions.sort((a, b) => a.date.getTime() - b.date.getTime());
+    // Separate approved/pending groups from rejected/unmatched groups
+    const activeGroups = groups.filter(
+      (group) => !group.isRejected && group.glEntries.length > 0,
+    );
+    const rejectedGroups = groups.filter((group) => group.isRejected);
+    const unmatchedBankGroups = groups.filter(
+      (group) => !group.isRejected && group.glEntries.length === 0,
+    );
 
-    const bankRows: Array<{
-      type: 'bank' | 'spacer';
-      bankIndex?: number;
-      data?: Record<string, unknown>;
-      match?: MatchDetails | null;
-    }> = [];
-
-    const glRows: Array<{
-      type: 'gl' | 'spacer';
-      glIndex?: number;
-      data?: Record<string, unknown>;
-      match?: MatchDetails | null;
-    }> = [];
-
-    bankTransactions.forEach((bankTransaction, index) => {
-      // Add bank transaction
-      bankRows.push({
-        type: 'bank',
-        bankIndex: bankTransaction.bankIndex,
-        data: bankTransaction.bankEntry,
-        match: bankTransaction.match
-      });
-
-      if (bankTransaction.match && bankTransaction.match.glIndexes.length > 0) {
-        // Add first GL entry aligned with bank transaction
-        const firstGlIndex = bankTransaction.match.glIndexes[0];
-        glRows.push({
-          type: 'gl',
-          glIndex: firstGlIndex,
-          data: currentSession.gl_data[firstGlIndex],
-          match: bankTransaction.match
+    // Find unmatched GL entries (not matched to any active group)
+    const matchedGlIndexes = new Set<number>();
+    activeGroups.forEach((group) => {
+      if (group.bankMatch && group.bankMatch.glIndexes.length > 0) {
+        group.bankMatch.glIndexes.forEach((glIndex) => {
+          matchedGlIndexes.add(glIndex);
         });
-
-        // Add remaining GL entries with spacers on bank side
-        for (let i = 1; i < bankTransaction.match.glIndexes.length; i++) {
-          const glIndex = bankTransaction.match.glIndexes[i];
-
-          // Add spacer row to bank side
-          bankRows.push({ type: 'spacer' });
-
-          // Add GL entry
-          glRows.push({
-            type: 'gl',
-            glIndex,
-            data: currentSession.gl_data[glIndex],
-            match: bankTransaction.match
-          });
-        }
-      } else {
-        // No GL match, add spacer to GL side
-        glRows.push({ type: 'spacer' });
       }
     });
 
-    return { bankRows, glRows };
+    // Add unmatched GL entries as separate groups
+    const unmatchedGlEntries = currentSession.gl_data
+      .map((glEntry, glIndex) => ({ glEntry, glIndex }))
+      .filter(({ glIndex }) => !matchedGlIndexes.has(glIndex));
+
+    // Create separate unmatched entries for side-by-side display
+    const unmatchedBankEntries = [
+      ...rejectedGroups,
+      ...unmatchedBankGroups,
+    ].map((group) => ({
+      ...group,
+      isUnmatchedBank: true,
+      date: group.bankEntry?.date
+        ? new Date(group.bankEntry.date as string)
+        : new Date(0),
+    }));
+
+    const unmatchedGlEntriesFormatted = unmatchedGlEntries.map(
+      ({ glEntry, glIndex }) => ({
+        bankEntry: null,
+        bankIndex: null,
+        bankMatch: null,
+        glEntries: [
+          {
+            glIndex,
+            data: glEntry,
+            match: null,
+          },
+        ],
+        groupStyle: "no-match" as const,
+        isUnmatchedGl: true,
+        isRejected: false,
+        isUnmatchedBank: false,
+        date: glEntry.date ? new Date(glEntry.date as string) : new Date(0),
+      }),
+    );
+
+    // Sort unmatched entries by date
+    unmatchedBankEntries.sort((a, b) => a.date.getTime() - b.date.getTime());
+    unmatchedGlEntriesFormatted.sort(
+      (a, b) => a.date.getTime() - b.date.getTime(),
+    );
+
+    // Store unmatched entries separately for side-by-side rendering
+    const unmatchedEntriesData = {
+      bankEntries: unmatchedBankEntries,
+      glEntries: unmatchedGlEntriesFormatted,
+    };
+
+    return [...activeGroups, unmatchedEntriesData];
   };
 
   return (
@@ -651,6 +769,13 @@ export default function AgentReconciliationPage() {
             <div className="flex space-x-3">
               <button
                 type="button"
+                onClick={() => setShowDocumentUpload(true)}
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors"
+              >
+                📄 Upload Documents
+              </button>
+              <button
+                type="button"
                 onClick={continueProcessing}
                 disabled={isLoading}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
@@ -662,176 +787,366 @@ export default function AgentReconciliationPage() {
         </div>
       )}
 
-      {/* Main Merged Table Interface */}
-      {currentSession && currentSession.bank_data.length > 0 && (
+      {/* Initial Loading State */}
+      {isInitializing && (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="bg-slate-800 rounded-lg p-8 border border-slate-600">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400" />
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-white mb-2">
+                  Loading Session
+                </h3>
+                <p className="text-slate-300 text-sm">
+                  Fetching reconciliation data...
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {isLoading && (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="bg-slate-800 rounded-lg p-8 border border-slate-600">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400" />
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-white mb-2">
+                  Agent is Reconciling
+                </h3>
+                <p className="text-slate-300 text-sm">
+                  The AI agent is analyzing your financial data and finding
+                  matches...
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Card-Based Interface */}
+      {currentSession && currentSession.bank_data.length > 0 && !isLoading && (
         <div className="flex-1 overflow-auto">
-          <div className="bg-slate-800 px-4 py-3 border-b border-slate-600">
+          <div className="bg-slate-800 px-6 py-4 border-b border-slate-600">
             <div className="flex justify-between items-center">
               <div>
                 <h3 className="text-lg font-semibold text-white">
-                  Bank Statement & General Ledger
+                  Reconciliation Groups
                 </h3>
                 <p className="text-slate-400 text-sm">
-                  {currentSession.bank_data.length} bank entries, {currentSession.gl_data.length} ledger entries
+                  {currentSession.bank_data.length} bank entries,{" "}
+                  {currentSession.gl_data.length} ledger entries
                 </p>
               </div>
-              <div className="flex space-x-8 text-sm">
+              <div className="flex space-x-6 text-sm">
                 <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-blue-600 rounded"></div>
-                  <span className="text-slate-300">Bank Statement</span>
+                  <div className="w-3 h-3 bg-green-500 rounded" />
+                  <span className="text-slate-300">Approved</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-purple-600 rounded"></div>
-                  <span className="text-slate-300">General Ledger</span>
+                  <div className="w-3 h-3 bg-yellow-500 rounded" />
+                  <span className="text-slate-300">Pending</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-slate-500 rounded" />
+                  <span className="text-slate-300">No Match</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="overflow-auto max-h-full">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-700 sticky top-0">
-                <tr>
-                  {/* Bank Statement Headers */}
-                  <th className="px-4 py-3 text-left text-blue-300 font-medium border-r border-slate-600">
-                    Bank #
-                  </th>
-                  {currentSession.bank_data[0] &&
-                    Object.keys(currentSession.bank_data[0]).map((key) => (
-                      <th
-                        key={key}
-                        className="px-4 py-3 text-left text-blue-300 font-medium border-r border-slate-600"
+          <div className="p-6 space-y-4">
+            {createGroupedData().map((group, groupIndex) => {
+              // Handle unmatched entries data object first
+              if (
+                group &&
+                typeof group === "object" &&
+                "bankEntries" in group &&
+                "glEntries" in group
+              ) {
+                const bankEntries = group.bankEntries;
+                const glEntries = group.glEntries;
+                const maxEntries = Math.max(
+                  bankEntries.length,
+                  glEntries.length,
+                );
+
+                return (
+                  <div key="unmatched-entries" className="space-y-2">
+                    <h3 className="text-lg font-semibold text-white mb-4">
+                      Unmatched Entries
+                    </h3>
+                    {Array.from({ length: maxEntries }, (_, i) => (
+                      <div
+                        key={`unmatched-row-${i}`}
+                        className="grid grid-cols-1 lg:grid-cols-2 gap-3"
                       >
-                        {key.replace(/_/g, " ").toUpperCase()}
-                      </th>
+                        {/* Bank Entry Column */}
+                        <div className="space-y-2">
+                          {bankEntries[i] && (
+                            <div className="rounded-lg border-2 p-2 bg-slate-800/20 border-slate-600">
+                              <div className="flex items-center justify-between mb-1">
+                                <h4 className="text-sm font-semibold text-white">
+                                  {bankEntries[i].isRejected
+                                    ? "Rejected"
+                                    : "Unmatched"}{" "}
+                                  Bank Entry #{bankEntries[i].bankIndex}
+                                </h4>
+                                <span className="text-sm text-slate-400">
+                                  ○
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1 text-xs">
+                                {bankEntries[i].bankEntry &&
+                                  Object.entries(bankEntries[i].bankEntry)
+                                    .slice(0, 4)
+                                    .map(([key, value]) => (
+                                      <div key={key}>
+                                        <span className="text-slate-400 text-xs block">
+                                          {key.replace(/_/g, " ").toUpperCase()}
+                                        </span>
+                                        <span className="text-white text-xs truncate">
+                                          {String(value)}
+                                        </span>
+                                      </div>
+                                    ))}
+                              </div>
+                              {bankEntries[i].isRejected &&
+                                bankEntries[i].bankMatch && (
+                                  <div className="mt-1 pt-1 border-t border-slate-600">
+                                    <span className="text-red-400 text-xs">
+                                      Previously matched to GL [
+                                      {bankEntries[i].bankMatch.glIndexes.join(
+                                        ", ",
+                                      )}
+                                      ]
+                                    </span>
+                                  </div>
+                                )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* GL Entry Column */}
+                        <div className="space-y-2">
+                          {glEntries[i] && (
+                            <div className="rounded-lg border-2 p-2 bg-slate-800/20 border-slate-600">
+                              <div className="flex items-center justify-between mb-1">
+                                <h4 className="text-sm font-semibold text-white">
+                                  Unmatched GL Entry #
+                                  {glEntries[i].glEntries[0]?.glIndex}
+                                </h4>
+                                <span className="text-sm text-slate-400">
+                                  ○
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1 text-xs">
+                                {Object.entries(glEntries[i].glEntries[0].data)
+                                  .slice(0, 4)
+                                  .map(([key, value]) => (
+                                    <div key={key}>
+                                      <span className="text-slate-400 text-xs block">
+                                        {key.replace(/_/g, " ").toUpperCase()}
+                                      </span>
+                                      <span className="text-white text-xs truncate">
+                                        {String(value)}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     ))}
-                  <th className="px-4 py-3 text-left text-blue-300 font-medium border-r-4 border-slate-500">
-                    Match
-                  </th>
+                  </div>
+                );
+              }
 
-                  {/* General Ledger Headers */}
-                  <th className="px-4 py-3 text-left text-purple-300 font-medium">
-                    GL #
-                  </th>
-                  {currentSession.gl_data[0] &&
-                    Object.keys(currentSession.gl_data[0]).map((key) => (
-                      <th
-                        key={key}
-                        className="px-4 py-3 text-left text-purple-300 font-medium"
-                      >
-                        {key.replace(/_/g, " ").toUpperCase()}
-                      </th>
-                    ))}
-                  <th className="px-4 py-3 text-left text-purple-300 font-medium">
-                    Match
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  const { bankRows, glRows } = createSideBySideGroupedData();
-                  const maxRows = Math.max(bankRows.length, glRows.length);
-                  const rows = [];
+              // Handle regular matched groups
+              const getGroupStyling = () => {
+                switch (group.groupStyle) {
+                  case "approved":
+                    return "bg-green-900/20 border-green-500 hover:bg-green-900/30";
+                  case "high-confidence":
+                    return "bg-green-800/20 border-green-400 hover:bg-green-800/30";
+                  case "medium-confidence":
+                    return "bg-yellow-800/20 border-yellow-400 hover:bg-yellow-800/30";
+                  case "low-confidence":
+                    return "bg-yellow-800/20 border-yellow-400 hover:bg-yellow-800/30";
+                  default:
+                    return "bg-slate-800/50 border-slate-600 hover:bg-slate-700/60";
+                }
+              };
 
-                  for (let i = 0; i < maxRows; i++) {
-                    const bankRow = bankRows[i];
-                    const glRow = glRows[i];
+              const getStatusIcon = () => {
+                switch (group.groupStyle) {
+                  case "approved":
+                    return "✓";
+                  case "high-confidence":
+                  case "medium-confidence":
+                  case "low-confidence":
+                    return "?";
+                  default:
+                    return "○";
+                }
+              };
 
-                    // Determine row styling based on match
-                    const getRowStyling = () => {
-                      const bankMatch = bankRow?.match;
-                      const glMatch = glRow?.match;
+              const getStatusColor = () => {
+                switch (group.groupStyle) {
+                  case "approved":
+                    return "text-green-400";
+                  case "high-confidence":
+                    return "text-green-400";
+                  case "medium-confidence":
+                    return "text-yellow-400";
+                  case "low-confidence":
+                    return "text-yellow-400";
+                  default:
+                    return "text-slate-400";
+                }
+              };
 
-                      if (bankMatch && bankMatch.glIndexes.length > 0) {
-                        if (bankMatch.confidence >= 0.8) {
-                          return "bg-green-600/20 hover:bg-green-600/30 cursor-pointer border-l-4 border-green-500";
-                        }
-                        if (bankMatch.confidence >= 0.5) {
-                          return "bg-yellow-600/20 hover:bg-yellow-600/30 cursor-pointer border-l-4 border-yellow-500";
-                        }
-                        return "bg-orange-600/20 hover:bg-orange-600/30 cursor-pointer border-l-4 border-orange-500";
-                      }
-                      return "bg-slate-800/50 hover:bg-slate-700/60";
-                    };
-
-                    rows.push(
-                      <tr
-                        key={`merged-row-${i}`}
-                        className={getRowStyling()}
-                        onClick={() => {
-                          const match = bankRow?.match || glRow?.match;
-                          if (match) handleCellClick(match);
-                        }}
-                      >
-                        {/* Bank Statement Columns */}
-                        <td className="px-4 py-3 text-slate-400 border-r border-slate-600">
-                          {bankRow?.type === 'bank' ? bankRow.bankIndex : ''}
-                        </td>
-                        {currentSession.bank_data[0] &&
-                          Object.keys(currentSession.bank_data[0]).map((key, keyIndex) => (
-                            <td key={keyIndex} className="px-4 py-3 text-white border-r border-slate-600">
-                              {bankRow?.type === 'bank' ? String(bankRow.data![key] || '') : ''}
-                            </td>
-                          ))}
-                        <td className="px-4 py-3 border-r-4 border-slate-500">
-                          {bankRow?.type === 'bank' && bankRow.match ? (
-                            <div className="flex items-center space-x-2">
-                              {bankRow.match.status === "approved" ? (
-                                <span className="text-green-400">✓</span>
-                              ) : bankRow.match.status === "rejected" ? (
-                                <span className="text-red-400">✗</span>
-                              ) : (
-                                <span className="text-yellow-400">?</span>
-                              )}
-                              <span className="text-slate-300 text-xs">
-                                GL [{bankRow.match.glIndexes.join(", ")}]
+              // Handle unmatched GL entries differently
+              if (group.isUnmatchedGl) {
+                return (
+                  <div
+                    key={`unmatched-gl-${groupIndex}`}
+                    className={`rounded-lg border-2 p-3 transition-all duration-200 ${getGroupStyling()}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-base font-semibold text-white">
+                        Unmatched GL Entry #{group.glEntries[0].glIndex}
+                      </h4>
+                      <span className={`text-lg ${getStatusColor()}`}>
+                        {getStatusIcon()}
+                      </span>
+                    </div>
+                    <div className="bg-slate-800/50 rounded p-3">
+                      <div className="grid grid-cols-4 gap-2 text-sm">
+                        {Object.entries(group.glEntries[0].data).map(
+                          ([key, value]) => (
+                            <div key={key}>
+                              <span className="text-slate-400 text-xs block">
+                                {key.replace(/_/g, " ").toUpperCase()}
                               </span>
-                              <span className="text-slate-400 text-xs">
-                                ({(bankRow.match.confidence * 100).toFixed(0)}%)
+                              <span className="text-white text-xs truncate">
+                                {String(value)}
                               </span>
                             </div>
-                          ) : bankRow?.type === 'bank' ? (
-                            <span className="text-slate-500 text-xs">No match</span>
-                          ) : null}
-                        </td>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
 
-                        {/* General Ledger Columns */}
-                        <td className="px-4 py-3 text-slate-400">
-                          {glRow?.type === 'gl' ? glRow.glIndex : ''}
-                        </td>
-                        {currentSession.gl_data[0] &&
-                          Object.keys(currentSession.gl_data[0]).map((key, keyIndex) => (
-                            <td key={keyIndex} className="px-4 py-3 text-white">
-                              {glRow?.type === 'gl' ? String(glRow.data![key] || '') : ''}
-                            </td>
-                          ))}
-                        <td className="px-4 py-3">
-                          {glRow?.type === 'gl' && glRow.match ? (
-                            <div className="flex items-center space-x-2">
-                              {glRow.match.status === "approved" ? (
-                                <span className="text-green-400">✓</span>
-                              ) : glRow.match.status === "rejected" ? (
-                                <span className="text-red-400">✗</span>
-                              ) : (
-                                <span className="text-yellow-400">?</span>
-                              )}
-                              <span className="text-slate-300 text-xs">
-                                Bank {glRow.match.bankIndex}
-                              </span>
-                              <span className="text-slate-400 text-xs">
-                                ({(glRow.match.confidence * 100).toFixed(0)}%)
-                              </span>
-                            </div>
-                          ) : null}
-                        </td>
-                      </tr>
-                    );
+              return (
+                <div
+                  key={`group-${groupIndex}`}
+                  className={`rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 ${getGroupStyling()}`}
+                  onClick={() =>
+                    group.bankMatch && handleCellClick(group.bankMatch)
                   }
+                >
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Bank Entry Card */}
+                    <div className="bg-slate-800/50 rounded p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-base font-semibold text-white">
+                          Bank #{group.bankIndex}
+                        </h4>
+                        <div className="flex items-center space-x-2">
+                          <span className={`text-lg ${getStatusColor()}`}>
+                            {getStatusIcon()}
+                          </span>
+                          {group.bankMatch && (
+                            <span className="text-slate-400 text-xs">
+                              {(group.bankMatch.confidence * 100).toFixed(0)}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-sm">
+                        {group.bankEntry &&
+                          Object.entries(group.bankEntry).map(
+                            ([key, value]) => (
+                              <div key={key}>
+                                <span className="text-slate-400 text-xs block">
+                                  {key.replace(/_/g, " ").toUpperCase()}
+                                </span>
+                                <span className="text-white text-sm">
+                                  {String(value)}
+                                </span>
+                              </div>
+                            ),
+                          )}
+                      </div>
+                      {group.bankMatch && (
+                        <div className="mt-2 pt-2 border-t border-slate-600">
+                          <span className="text-slate-400 text-xs">
+                            GL [{group.bankMatch.glIndexes.join(", ")}]
+                          </span>
+                        </div>
+                      )}
+                    </div>
 
-                  return rows;
-                })()}
-              </tbody>
-            </table>
+                    {/* GL Entries Card */}
+                    <div className="bg-slate-800/50 rounded p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-base font-semibold text-white">
+                          GL Entries ({group.glEntries.length})
+                        </h4>
+                      </div>
+                      {group.glEntries.length > 0 ? (
+                        <div className="space-y-2">
+                          {group.glEntries.map((glEntry) => (
+                            <div
+                              key={glEntry.glIndex}
+                              className="bg-slate-700/50 rounded p-2"
+                            >
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-slate-300 text-sm font-medium">
+                                  GL #{glEntry.glIndex}
+                                </span>
+                                {glEntry.match && (
+                                  <span className="text-slate-400 text-xs">
+                                    Bank {glEntry.match.bankIndex}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-1 text-xs">
+                                {Object.entries(glEntry.data)
+                                  .slice(0, 4)
+                                  .map(([key, value]) => (
+                                    <div key={key}>
+                                      <span className="text-slate-400 text-xs block">
+                                        {key.replace(/_/g, " ").toUpperCase()}
+                                      </span>
+                                      <span className="text-white text-xs truncate">
+                                        {String(value)}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-4">
+                          <span className="text-slate-500 text-sm">
+                            No GL entries matched
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -839,7 +1154,16 @@ export default function AgentReconciliationPage() {
       {/* Match Details Modal */}
       {showMatchModal && selectedMatch && currentSession && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
+            {/* Loading Overlay */}
+            {isUpdatingMatch && (
+              <div className="absolute inset-0 bg-slate-800/80 rounded-lg flex items-center justify-center z-10">
+                <div className="flex flex-col items-center space-y-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
+                  <p className="text-slate-300 text-sm">Updating match...</p>
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-semibold text-white">Match Review</h3>
               <button
@@ -950,31 +1274,48 @@ export default function AgentReconciliationPage() {
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              {selectedMatch.status === "pending" && (
-                <div className="flex space-x-4 pt-4">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateMatchStatus(selectedMatch.bankIndex, "approved")
-                    }
-                    disabled={isUpdatingMatch}
-                    className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {isUpdatingMatch ? "Processing..." : "✓ Approve Match"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateMatchStatus(selectedMatch.bankIndex, "rejected")
-                    }
-                    disabled={isUpdatingMatch}
-                    className="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {isUpdatingMatch ? "Processing..." : "✗ Reject Match"}
-                  </button>
-                </div>
-              )}
+              {/* Action Buttons - Only show if there's a match to approve/reject */}
+              {selectedMatch.status === "pending" &&
+                selectedMatch.glIndexes.length > 0 && (
+                  <div className="flex space-x-4 pt-4">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateMatchStatus(selectedMatch.bankIndex, "approved")
+                      }
+                      disabled={isUpdatingMatch}
+                      className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isUpdatingMatch ? "Processing..." : "✓ Approve Match"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateMatchStatus(selectedMatch.bankIndex, "rejected")
+                      }
+                      disabled={isUpdatingMatch}
+                      className="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isUpdatingMatch ? "Processing..." : "✗ Reject Match"}
+                    </button>
+                  </div>
+                )}
+
+              {/* No Match Message */}
+              {selectedMatch.status === "pending" &&
+                selectedMatch.glIndexes.length === 0 && (
+                  <div className="pt-4">
+                    <div className="p-4 rounded-lg bg-slate-700 border border-slate-600">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-slate-400 text-xl">ℹ️</span>
+                        <span className="text-slate-300">
+                          No match suggested by AI. This transaction requires
+                          manual review or additional data.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
               {/* Status Display for Approved/Rejected */}
               {selectedMatch.status !== "pending" && (
@@ -1006,6 +1347,130 @@ export default function AgentReconciliationPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Upload Modal */}
+      {showDocumentUpload && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
+            {/* Loading Overlay */}
+            {isUploadingDocuments && (
+              <div className="absolute inset-0 bg-slate-800/80 rounded-lg flex items-center justify-center z-10">
+                <div className="flex flex-col items-center space-y-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
+                  <p className="text-slate-300 text-sm">
+                    Uploading documents...
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-white">
+                Upload Financial Documents
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowDocumentUpload(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <p className="text-slate-300 text-sm mb-4">
+                  Upload PDF documents (invoices, receipts, statements) to
+                  enhance the reconciliation process.
+                </p>
+
+                <div
+                  {...documentDropzone.getRootProps()}
+                  className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+                    documentDropzone.isDragActive
+                      ? "border-purple-400 bg-purple-900/20"
+                      : "border-slate-500 hover:border-slate-400"
+                  }`}
+                >
+                  <input {...documentDropzone.getInputProps()} />
+                  <div className="space-y-3">
+                    <div className="text-4xl">📄</div>
+                    <div>
+                      <p className="text-white font-medium">
+                        {documentDropzone.isDragActive
+                          ? "Drop your PDF documents here"
+                          : "Drag & drop PDF documents here, or click to select"}
+                      </p>
+                      <p className="text-slate-400 text-sm mt-1">
+                        Supports PDF files only
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Uploaded Documents List */}
+              {uploadedDocuments.length > 0 && (
+                <div>
+                  <h4 className="text-lg font-medium text-white mb-3">
+                    Selected Documents
+                  </h4>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {uploadedDocuments.map((file, index) => (
+                      <div
+                        key={index}
+                        className="bg-slate-700 rounded p-3 flex items-center justify-between"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <span className="text-slate-400">📄</span>
+                          <div>
+                            <p className="text-white text-sm font-medium">
+                              {file.name}
+                            </p>
+                            <p className="text-slate-400 text-xs">
+                              {(file.size / 1024 / 1024).toFixed(2)} MB
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeDocument(index)}
+                          className="text-slate-400 hover:text-white"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex space-x-4 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowDocumentUpload(false)}
+                  className="flex-1 bg-slate-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={uploadDocuments}
+                  disabled={
+                    uploadedDocuments.length === 0 || isUploadingDocuments
+                  }
+                  className="flex-1 bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isUploadingDocuments
+                    ? "Uploading..."
+                    : `Upload ${uploadedDocuments.length} Document${uploadedDocuments.length !== 1 ? "s" : ""}`}
+                </button>
+              </div>
             </div>
           </div>
         </div>
