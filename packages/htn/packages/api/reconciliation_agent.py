@@ -32,7 +32,7 @@ class AgentState(str, Enum):
 
 class BankMatchData(BaseModel):
     bank_index: int
-    gl_index: int | None  # None if no match found
+    gl_indexes: list[int] = Field(default_factory=list)  # List of GL entries for transaction lifecycle
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str
     status: MatchStatus = MatchStatus.PENDING
@@ -242,7 +242,7 @@ Be specific and actionable in your response."""
                 bank_matches=matches,
                 agent_state=session.agent_state,
                 agent_thoughts=session.agent_thoughts,
-                processing_notes=f"Agent analyzed {len(bank_data)} bank entries and {len(gl_data)} GL entries. Found {len([m for m in matches if m.gl_index is not None])} potential matches for user review.",
+                processing_notes=f"Agent analyzed {len(bank_data)} bank entries and {len(gl_data)} GL entries. Found {len([m for m in matches if len(m.gl_indexes) > 0])} potential matches for user review.",
                 session_id=session_id,
                 next_action="Present matches to user for review and approval",
             )
@@ -274,19 +274,24 @@ Bank Statement Entries (showing first 10):
 General Ledger Entries (showing first 10):
 {gl_data_str}
 
-Your task is to match bank statement entries with general ledger entries. For each bank entry, find the best matching GL entry or indicate if no good match exists.
+Your task is to match bank statement entries with general ledger entries. For each bank entry, find the best matching GL entries - note that a single bank transaction may correspond to multiple GL entries (debits/credits representing the transaction lifecycle).
 
 Consider these factors for matching:
-1. Amount (exact match preferred, but small differences acceptable)
+1. Amount (the sum of GL entries should match the bank amount, or individual entries may match)
 2. Date proximity (within a few days is good)
 3. Description similarity (look for common keywords, vendor names, etc.)
-4. Transaction patterns
+4. Transaction patterns and business logic (e.g., an invoice payment might have multiple GL entries)
 
 For each bank entry, provide:
 - bank_index: the index of the bank entry (0-based)
-- gl_index: the index of the matching GL entry, or null if no match
+- gl_indexes: array of GL entry indexes that together represent this transaction, or empty array if no match
 - confidence: your confidence in this match (0.0 to 1.0)
-- reasoning: brief explanation of why this is a match or why no match exists
+- reasoning: brief explanation of why these GL entries match this bank entry
+
+Examples of multi-entry matches:
+- A $1000 payment might match GL entries for $800 invoice + $200 tax
+- A deposit might match multiple revenue entries
+- An expense might match cost + tax entries
 
 Focus on high-confidence matches first. Be conservative - it's better to miss a match than to create a false positive.
 
@@ -326,7 +331,7 @@ Return your analysis as a JSON array of match objects."""
                     matches_data.append(
                         {
                             "bank_index": i,
-                            "gl_index": None,
+                            "gl_indexes": [],
                             "confidence": 0.0,
                             "reasoning": "Could not parse agent response, manual review needed",
                         }
@@ -341,10 +346,15 @@ Return your analysis as a JSON array of match objects."""
                     confidence = 0.0
                 confidence = max(0.0, min(1.0, confidence))  # Clamp between 0 and 1
                 
+                gl_indexes = match_data.get("gl_indexes", [])
+                # Handle backward compatibility with old gl_index field
+                if not gl_indexes and "gl_index" in match_data and match_data["gl_index"] is not None:
+                    gl_indexes = [match_data["gl_index"]]
+
                 matches.append(
                     BankMatchData(
                         bank_index=match_data.get("bank_index", 0),
-                        gl_index=match_data.get("gl_index"),
+                        gl_indexes=gl_indexes,
                         confidence=confidence,
                         reasoning=match_data.get("reasoning", "No reasoning provided"),
                     )

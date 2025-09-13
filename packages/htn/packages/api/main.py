@@ -155,6 +155,7 @@ async def link_document_to_match(
                     "message": "Document linked successfully",
                     "session_id": session_id,
                     "bank_index": bank_index,
+                    "gl_indexes": match.gl_indexes,
                     "linked_documents": match.linked_documents,
                 }
 
@@ -201,7 +202,7 @@ async def finalize_reconciliation(session_id: str):
         # Process verified matches (remove from working datasets)
         processed_count = 0
         for match in verified_matches:
-            if match.gl_index is not None:
+            if len(match.gl_indexes) > 0:
                 # Mark as processed (in a real system, you'd update your database)
                 processed_count += 1
 
