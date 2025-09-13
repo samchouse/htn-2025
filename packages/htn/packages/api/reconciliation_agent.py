@@ -519,7 +519,7 @@ Return your analysis as a JSON array of match objects."""
     def update_match_status(
         self, session_id: str, bank_index: int, status: MatchStatus
     ) -> bool:
-        """Update match status for a specific bank entry"""
+        """Update match status for a specific bank entry and trigger document search if approved"""
         session = self.sessions.get(session_id)
         if not session:
             return False
@@ -529,6 +529,23 @@ Return your analysis as a JSON array of match objects."""
                 match.status = status
                 if status == MatchStatus.VERIFIED:
                     match.verified_at = datetime.now()
+
+                # If match is approved, automatically search for supporting documents
+                if status == MatchStatus.APPROVED:
+                    matching_docs = self.find_document_matches(session_id, bank_index)
+                    if matching_docs:
+                        # Store document matches in the match record
+                        match.linked_documents = [
+                            doc["file_path"] for doc in matching_docs
+                        ]
+                        logger.info(
+                            f"Found {len(matching_docs)} document matches for bank_index {bank_index}"
+                        )
+                    else:
+                        logger.info(
+                            f"No document matches found for bank_index {bank_index}"
+                        )
+
                 session.updated_at = datetime.now()
                 self._save_session(session)
                 return True
@@ -547,25 +564,26 @@ Return your analysis as a JSON array of match objects."""
 
         matching_docs = []
 
-        # Search through existing document metadata
-        for doc_file in self.data_dir.glob("*.json"):
-            if doc_file.name.startswith("session_"):
-                continue
+        # Search through document metadata in data/meta/*.json
+        meta_dir = self.data_dir / "meta"
+        if not meta_dir.exists():
+            return []
 
+        for doc_file in meta_dir.glob("*.json"):
             try:
-                with open(doc_file) as f:
+                with open(doc_file, encoding="utf-8") as f:
                     doc_data = json.load(f)
 
                 extraction = doc_data.get("extraction", {})
                 doc_amount = extraction.get("amount", 0)
                 doc_date_str = extraction.get("date", "")
 
-                # Check amount match
+                # Check amount match (exact or very close)
                 amount_match = False
                 if bank_amount and doc_amount and abs(bank_amount - doc_amount) < 0.01:
                     amount_match = True
 
-                # Check date match
+                # Check date match (within 7 days)
                 date_match = False
                 if bank_date and doc_date_str:
                     try:
@@ -575,14 +593,28 @@ Return your analysis as a JSON array of match objects."""
                     except Exception:
                         pass
 
-                if amount_match or date_match:
+                # Calculate confidence based on matches
+                confidence = 0.0
+                match_reasons = []
+
+                if amount_match and date_match:
+                    confidence = 0.95
+                    match_reasons = ["amount", "date"]
+                elif amount_match:
+                    confidence = 0.8
+                    match_reasons = ["amount"]
+                elif date_match:
+                    confidence = 0.4
+                    match_reasons = ["date"]
+
+                if confidence > 0:
                     matching_docs.append(
                         {
                             "file_path": str(doc_file),
                             "filename": doc_data.get("original_filename", ""),
                             "extraction": extraction,
-                            "match_reason": "amount" if amount_match else "date",
-                            "confidence": 0.9 if amount_match and date_match else 0.7,
+                            "match_reasons": match_reasons,
+                            "confidence": confidence,
                         }
                     )
 
@@ -591,6 +623,49 @@ Return your analysis as a JSON array of match objects."""
                 continue
 
         return sorted(matching_docs, key=lambda x: x["confidence"], reverse=True)
+
+    def get_match_documents(self, session_id: str, bank_index: int) -> list[dict]:
+        """Get detailed document information for a specific match"""
+        session = self.sessions.get(session_id)
+        if not session:
+            return []
+
+        # Find the match for this bank index
+        match = None
+        for m in session.matches:
+            if m.bank_index == bank_index:
+                match = m
+                break
+
+        if not match or not match.linked_documents:
+            # If no documents are linked yet, try to find them
+            return self.find_document_matches(session_id, bank_index)
+
+        # Return detailed information about linked documents
+        detailed_docs = []
+        meta_dir = self.data_dir / "meta"
+
+        for doc_path in match.linked_documents:
+            try:
+                doc_file = Path(doc_path)
+                if doc_file.exists():
+                    with open(doc_file, encoding="utf-8") as f:
+                        doc_data = json.load(f)
+
+                    detailed_docs.append(
+                        {
+                            "file_path": str(doc_file),
+                            "filename": doc_data.get("original_filename", ""),
+                            "extraction": doc_data.get("extraction", {}),
+                            "timestamp": doc_data.get("timestamp", ""),
+                            "processing_notes": doc_data.get("processing_notes", ""),
+                        }
+                    )
+            except Exception as e:
+                logger.warning(f"Error reading linked document {doc_path}: {e}")
+                continue
+
+        return detailed_docs
 
     def _build_error_result(self, error_message: str) -> dict[str, Any]:
         """Build error result structure"""

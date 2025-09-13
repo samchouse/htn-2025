@@ -1,0 +1,13 @@
+{
+  "timestamp": "2025-09-13T15:51:04.939433",
+  "original_filename": "receipt1234.pdf",
+  "extraction": {
+    "seller": "K-Food.",
+    "customer": "Robot Inc.",
+    "date": "2025-01-13",
+    "amount": 100.0,
+    "invoice_number": "1234",
+    "description": "Receipt for Korean food"
+  },
+  "processing_notes": "Successfully processed document: receipt1234.pdf"
+}

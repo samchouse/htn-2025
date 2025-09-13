@@ -1,7 +1,9 @@
 import os
+from pathlib import Path
 
 from doc_processing import DocumentProcessor
 from fastapi import Body, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.routing import APIRoute
 from reconciliation_agent import MatchStatus, ReconciliationAgent
 from scalar_fastapi import get_scalar_api_reference
@@ -77,7 +79,7 @@ async def get_reconciliation_session(session_id: str):
             "bank_data": session.bank_data,
             "gl_data": session.gl_data,
         }
-        
+
         # Clean NaN values before returning
         return reconciliation_agent._clean_nan_values(result)
     except Exception as e:
@@ -113,12 +115,10 @@ async def update_match_status(
 
 
 @app.get("/reconcile/session/{session_id}/match/{bank_index}/documents")
-async def find_document_matches(session_id: str, bank_index: int):
-    """Find document metadata that matches a bank entry"""
+async def get_match_documents(session_id: str, bank_index: int):
+    """Get document metadata that matches a bank entry (linked or found)"""
     try:
-        matching_docs = reconciliation_agent.find_document_matches(
-            session_id, bank_index
-        )
+        matching_docs = reconciliation_agent.get_match_documents(session_id, bank_index)
 
         return {
             "session_id": session_id,
@@ -128,7 +128,7 @@ async def find_document_matches(session_id: str, bank_index: int):
         }
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Error finding document matches: {str(e)}"
+            status_code=500, detail=f"Error getting document matches: {str(e)}"
         ) from e
 
 
@@ -251,6 +251,53 @@ async def process_document(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error processing document: {str(e)}"
+        ) from e
+
+
+@app.get("/download-document")
+async def download_document(path: str):
+    """Download a document file from the data directory"""
+    try:
+        # Security check: ensure the path is within the data directory
+        requested_path = Path(path)
+        data_dir = Path("data")
+
+        # Convert to absolute paths for security check
+        abs_data_dir = data_dir.resolve()
+
+        # If path is relative, make it relative to data dir
+        if not requested_path.is_absolute():
+            abs_file_path = (abs_data_dir / requested_path).resolve()
+        else:
+            abs_file_path = requested_path.resolve()
+
+        # Security check: ensure file is within data directory
+        try:
+            abs_file_path.relative_to(abs_data_dir)
+        except ValueError:
+            raise HTTPException(
+                status_code=403, detail="Access denied: file outside allowed directory"
+            )
+
+        # Check if file exists
+        if not abs_file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        # Check if it's a file (not directory)
+        if not abs_file_path.is_file():
+            raise HTTPException(status_code=404, detail="Path is not a file")
+
+        # Return the file
+        filename = abs_file_path.name
+        return FileResponse(
+            path=str(abs_file_path), filename=filename, media_type="application/pdf"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error serving file: {str(e)}"
         ) from e
 
 

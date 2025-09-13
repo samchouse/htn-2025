@@ -43,6 +43,8 @@ class DocumentProcessor:
         """
         Process PDF document to extract seller, customer, date, amount, invoice number, and description
         """
+        self._save_original_pdf(pdf_content, filename)
+
         try:
             # Extract text from PDF
             pdf_text = self._extract_text_from_pdf(pdf_content)
@@ -130,6 +132,32 @@ PDF Text:
             logger.error(f"Document processing error: {str(e)}")
             return self._build_error_result(str(e))
 
+    def _save_original_pdf(self, pdf_content: bytes, filename: str) -> Path:
+        """Save the original PDF file to the data directory"""
+        try:
+            # Create the PDF storage directory
+            pdf_dir = self.data_dir / "meta"
+            pdf_dir.mkdir(exist_ok=True)
+
+            # Generate unique filename with timestamp to avoid conflicts
+            base_name = Path(filename).stem
+            extension = Path(filename).suffix or ".pdf"
+            unique_filename = f"{base_name}{extension}"
+
+            file_path = pdf_dir / unique_filename
+
+            # Write the PDF content to file
+            with open(file_path, "wb") as f:
+                f.write(pdf_content)
+
+            logger.info(f"Original PDF saved to: {file_path}")
+            return file_path
+
+        except Exception as e:
+            logger.error(f"Error saving original PDF: {str(e)}")
+            # Don't raise an exception here as this is not critical for processing
+            return None
+
     def _extract_text_from_pdf(self, pdf_content: bytes) -> str:
         """Extract text from PDF content using PyMuPDF"""
         try:
@@ -146,7 +174,7 @@ PDF Text:
             return text.strip()
         except Exception as e:
             logger.error(f"Error extracting text from PDF: {str(e)}")
-            raise Exception(f"Failed to extract text from PDF: {str(e)}")
+            raise Exception(f"Failed to extract text from PDF: {str(e)}") from e
 
     def _extract_from_text(self, text: str) -> dict[str, Any]:
         """Fallback method to extract data from unstructured text response"""
@@ -188,10 +216,8 @@ PDF Text:
     ) -> Path:
         """Save extraction result to JSON file in data directory"""
         # Generate unique filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_name = Path(original_filename).stem
-        filename = f"{base_name}_{timestamp}.json"
-        file_path = self.data_dir / filename
+        filename = f"{Path(original_filename).name}.json"
+        file_path = self.data_dir / "meta" / filename
 
         # Prepare data to save
         save_data = {

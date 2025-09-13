@@ -74,6 +74,9 @@ export default function AgentReconciliationPage() {
   const [showExplanationModal, setShowExplanationModal] = useState(false);
   const [explanationText, setExplanationText] = useState("");
   const [isCreatingManualMatch, setIsCreatingManualMatch] = useState(false);
+  const [matchingDocuments, setMatchingDocuments] = useState<any[]>([]);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [showDocuments, setShowDocuments] = useState(false);
 
   // Fetch session details to get bank_data and gl_data
   const fetchSessionDetails = async (sessionId: string) => {
@@ -346,6 +349,82 @@ export default function AgentReconciliationPage() {
       );
     } finally {
       setIsUpdatingMatch(false);
+    }
+  };
+
+  // Function to fetch matching documents
+  const fetchMatchingDocuments = async (bankIndex: number) => {
+    if (!sessionId) return;
+
+    setIsLoadingDocuments(true);
+    try {
+      const response = await fetch(
+        `/api/reconcile/session/${sessionId}/match/${bankIndex}/documents`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setMatchingDocuments(data.matching_documents || []);
+      setShowDocuments(true);
+    } catch (error) {
+      console.error("Error fetching matching documents:", error);
+      setAgentMessage(
+        `Error fetching documents: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    } finally {
+      setIsLoadingDocuments(false);
+    }
+  };
+
+  // Function to download document
+  const downloadDocument = async (doc: any) => {
+    try {
+      // Extract the filename from the file path
+      const filename = doc.filename || doc.file_path?.split('/').pop() || 'document.pdf';
+
+      // Get the PDF file path by removing .json extension if present
+      let pdfPath = doc.file_path;
+      if (pdfPath?.endsWith('.json')) {
+        pdfPath = pdfPath.replace('.json', '');
+      }
+
+      // Remove 'data/' prefix if present since the API expects relative to data directory
+      if (pdfPath?.startsWith('data/')) {
+        pdfPath = pdfPath.substring(5); // Remove 'data/' prefix
+      }
+
+      // Create a download endpoint that serves the PDF from the Python API
+      const response = await fetch(`/api/download-document?path=${encodeURIComponent(pdfPath)}`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // Create a blob from the response
+      const blob = await response.blob();
+
+      // Create a temporary URL for the blob
+      const url = window.URL.createObjectURL(blob);
+
+      // Create a temporary anchor element and trigger download
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+
+      // Clean up
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+    } catch (error) {
+      console.error('Error downloading document:', error);
+      setAgentMessage(
+        `Error downloading document: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   };
 
@@ -1425,6 +1504,18 @@ export default function AgentReconciliationPage() {
                 </div>
               </div>
 
+              {/* Show Documents Button */}
+              <div className="flex space-x-4 pt-4">
+                <button
+                  type="button"
+                  onClick={() => fetchMatchingDocuments(selectedMatch.bankIndex)}
+                  disabled={isLoadingDocuments}
+                  className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isLoadingDocuments ? "Loading..." : "📄 Show Docs"}
+                </button>
+              </div>
+
               {/* Action Buttons - Only show if there's a match to approve/reject */}
               {selectedMatch.status === "pending" &&
                 selectedMatch.glIndexes.length > 0 && (
@@ -1737,6 +1828,108 @@ export default function AgentReconciliationPage() {
                   {isCreatingManualMatch ? "Creating..." : "Create Manual Match"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Documents Display Modal */}
+      {showDocuments && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-white">
+                Matching Documents
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowDocuments(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {matchingDocuments.length > 0 ? (
+                <>
+                  <p className="text-slate-300 text-sm">
+                    Found {matchingDocuments.length} document(s) that match this transaction:
+                  </p>
+                  {matchingDocuments.map((doc, index) => (
+                    <div key={index} className="bg-slate-700 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-white font-medium flex items-center">
+                          📄 {doc.filename || "Unknown Document"}
+                        </h4>
+                        <div className="flex items-center space-x-2">
+                          {doc.match_reasons && (
+                            <span className="text-xs bg-blue-600 px-2 py-1 rounded">
+                              Match: {doc.match_reasons.join(", ")}
+                            </span>
+                          )}
+                          {doc.confidence && (
+                            <span className="text-xs bg-green-600 px-2 py-1 rounded">
+                              {Math.round(doc.confidence * 100)}% confident
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => downloadDocument(doc)}
+                            className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-medium hover:bg-blue-700 transition-colors"
+                          >
+                            ⬇️ Download
+                          </button>
+                        </div>
+                      </div>
+
+                      {doc.extraction && (
+                        <div className="bg-slate-600 rounded p-3">
+                          <h5 className="text-white text-sm font-medium mb-2">Document Details:</h5>
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            {Object.entries(doc.extraction).map(([key, value]) => (
+                              <div key={key}>
+                                <span className="text-slate-400 text-xs block">
+                                  {key.replace(/_/g, " ").toUpperCase()}:
+                                </span>
+                                <span className="text-white">
+                                  {String(value)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {doc.processing_notes && (
+                        <div className="mt-2 text-slate-400 text-xs">
+                          {doc.processing_notes}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="text-center py-8">
+                  <div className="text-slate-500 text-4xl mb-2">📄</div>
+                  <p className="text-slate-400">
+                    No matching documents found for this transaction.
+                  </p>
+                  <p className="text-slate-500 text-sm mt-1">
+                    You may need to upload relevant documents first.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-4 mt-6 border-t border-slate-600">
+              <button
+                type="button"
+                onClick={() => setShowDocuments(false)}
+                className="bg-slate-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-slate-700 transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
