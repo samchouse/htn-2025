@@ -62,7 +62,7 @@ async def get_reconciliation_session(session_id: str):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        return {
+        result = {
             "session_id": session.session_id,
             "agent_state": session.agent_state,
             "iteration_count": session.iteration_count,
@@ -74,7 +74,12 @@ async def get_reconciliation_session(session_id: str):
             ],
             "user_feedback": session.user_feedback,
             "processing_notes": session.processing_notes,
+            "bank_data": session.bank_data,
+            "gl_data": session.gl_data,
         }
+        
+        # Clean NaN values before returning
+        return reconciliation_agent._clean_nan_values(result)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error retrieving session: {str(e)}"

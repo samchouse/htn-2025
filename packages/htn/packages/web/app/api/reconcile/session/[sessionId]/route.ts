@@ -2,10 +2,10 @@ import { type NextRequest, NextResponse } from "next/server";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { sessionId: string } },
+  { params }: { params: Promise<{ sessionId: string }> },
 ) {
   try {
-    const { sessionId } = params;
+    const { sessionId } = await params;
 
     // Forward the request to the Python API
     const pythonApiUrl = process.env.PYTHON_API_URL || "http://localhost:8000";

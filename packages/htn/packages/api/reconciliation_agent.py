@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import math
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -79,6 +80,19 @@ class ReconciliationAgent:
         self.data_dir = Path("data")
         self.data_dir.mkdir(exist_ok=True)
 
+    def _clean_nan_values(self, data: Any) -> Any:
+        """Recursively clean NaN values from data structures for JSON serialization"""
+        if isinstance(data, dict):
+            return {key: self._clean_nan_values(value) for key, value in data.items()}
+        elif isinstance(data, list):
+            return [self._clean_nan_values(item) for item in data]
+        elif isinstance(data, float):
+            if math.isnan(data) or math.isinf(data):
+                return 0.0
+            return data
+        else:
+            return data
+
     def _think(
         self,
         session: ReconciliationSession,
@@ -154,8 +168,12 @@ Be specific and actionable in your response."""
                         content.lower().split("confidence:")[1].strip().split()[0]
                     )
                     confidence = float(conf_part)
+                    # Validate confidence value
+                    if math.isnan(confidence) or math.isinf(confidence):
+                        confidence = 0.8
+                    confidence = max(0.0, min(1.0, confidence))  # Clamp between 0 and 1
                 except Exception:
-                    pass
+                    confidence = 0.8
 
             return AgentThought(
                 step=f"iteration_{session.iteration_count}",
@@ -229,7 +247,7 @@ Be specific and actionable in your response."""
                 next_action="Present matches to user for review and approval",
             )
 
-            return response.model_dump()
+            return self._clean_nan_values(response.model_dump())
 
         except Exception as e:
             logger.error(f"Reconciliation error: {str(e)}")
@@ -317,11 +335,17 @@ Return your analysis as a JSON array of match objects."""
             # Convert to BankMatchData objects
             matches = []
             for match_data in matches_data:
+                # Ensure confidence is a valid number
+                confidence = match_data.get("confidence", 0.0)
+                if not isinstance(confidence, (int, float)) or math.isnan(confidence) or math.isinf(confidence):
+                    confidence = 0.0
+                confidence = max(0.0, min(1.0, confidence))  # Clamp between 0 and 1
+                
                 matches.append(
                     BankMatchData(
                         bank_index=match_data.get("bank_index", 0),
                         gl_index=match_data.get("gl_index"),
-                        confidence=match_data.get("confidence", 0.0),
+                        confidence=confidence,
                         reasoning=match_data.get("reasoning", "No reasoning provided"),
                     )
                 )
@@ -371,7 +395,8 @@ Return your analysis as a JSON array of match objects."""
         session.updated_at = datetime.now()
         self._save_session(session)
 
-        return {
+        # Clean NaN values before returning
+        result = {
             "session_id": session_id,
             "agent_state": session.agent_state,
             "agent_thoughts": [
@@ -380,6 +405,8 @@ Return your analysis as a JSON array of match objects."""
             "next_action": next_action,
             "matches": [match.model_dump() for match in session.matches],
         }
+        
+        return self._clean_nan_values(result)
 
     def _execute_agent_action(
         self, session: ReconciliationSession, thought: AgentThought
