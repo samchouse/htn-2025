@@ -1,0 +1,13 @@
+{
+  "timestamp": "2025-09-13T10:36:27.609285",
+  "original_filename": "Invoice 1111.pdf",
+  "extraction": {
+    "seller": "Robot Inc.",
+    "customer": "Goodies Inc.",
+    "date": "2025-01-07",
+    "amount": 5000.0,
+    "invoice_number": "1111",
+    "description": "Invoice for advanced robots"
+  },
+  "processing_notes": "Successfully processed document: Invoice 1111.pdf"
+}
