@@ -69,7 +69,9 @@ export default function AgentReconciliationPage() {
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
   const [manualMatchMode, setManualMatchMode] = useState(false);
-  const [selectedBankEntry, setSelectedBankEntry] = useState<number | null>(null);
+  const [selectedBankEntry, setSelectedBankEntry] = useState<number | null>(
+    null,
+  );
   const [selectedGlEntries, setSelectedGlEntries] = useState<number[]>([]);
   const [showExplanationModal, setShowExplanationModal] = useState(false);
   const [explanationText, setExplanationText] = useState("");
@@ -78,25 +80,115 @@ export default function AgentReconciliationPage() {
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
 
-  // Fetch session details to get bank_data and gl_data
+  // Helper function to save session to backend
+  const saveSessionToBackend = async (sessionId: string, changeDescription: string) => {
+    if (!currentSession) return;
+    
+    try {
+      console.log(`💾 Saving session ${sessionId} with change: ${changeDescription}`);
+      
+      const response = await fetch(`/api/reconcile/session/${sessionId}/save`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...currentSession,
+          bank_matches: currentSession.matches, // Ensure bank_matches field exists for backend compatibility
+          change_description: changeDescription,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("❌ Failed to save session:", errorText);
+        throw new Error(`Failed to save session: ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log("✅ Session saved successfully:", result);
+      return result;
+    } catch (error) {
+      console.error("❌ Error saving session:", error);
+      throw error;
+    }
+  };
+
+  // Helper function to add a manual match to local session state
+  const addManualMatchToSession = (bankIndex: number, glIndexes: number[], explanation: string) => {
+    if (!currentSession) return;
+    
+    const newMatch: BankMatchData = {
+      bank_index: bankIndex,
+      gl_indexes: glIndexes,
+      confidence: 1.0,
+      reasoning: `Manual match created by user: ${explanation}`,
+      status: "approved" as const,
+      linked_documents: [],
+      created_at: new Date().toISOString(),
+      verified_at: new Date().toISOString(),
+      user_feedback: explanation,
+    };
+
+    setCurrentSession((prev) => {
+      if (!prev) return prev;
+      
+      return {
+        ...prev,
+        matches: [...prev.matches, newMatch],
+      };
+    });
+    
+    return newMatch;
+  };
+
+  // Helper function to reject a match in local session state
+  const rejectMatchInSession = (bankIndex: number, reason: string) => {
+    if (!currentSession) return;
+    
+    setCurrentSession((prev) => {
+      if (!prev) return prev;
+      
+      return {
+        ...prev,
+        matches: prev.matches.map((match) => 
+          match.bank_index === bankIndex 
+            ? { ...match, status: "rejected" as const, user_feedback: reason }
+            : match
+        ),
+      };
+    });
+  };
+
+  // Fetch session details to get bank_data, gl_data, and matches
   const fetchSessionDetails = async (sessionId: string) => {
     setIsInitializing(true);
     try {
+      console.log("🔍 Fetching session details for:", sessionId);
       const response = await fetch(`/api/reconcile/session/${sessionId}`);
       if (response.ok) {
         const sessionData = await response.json();
-        setCurrentSession((prev) =>
-          prev
+
+
+        setCurrentSession((prev) => {
+          return prev
             ? {
                 ...prev,
                 bank_data: sessionData.bank_data || [],
                 gl_data: sessionData.gl_data || [],
+                matches: sessionData.bank_matches || [],
               }
-            : null,
+            : null;
+        });
+      } else {
+        console.error(
+          "❌ Failed to fetch session details:",
+          response.status,
+          response.statusText,
         );
       }
     } catch (error) {
-      console.error("Error fetching session details:", error);
+      console.error("❌ Error fetching session details:", error);
     } finally {
       setIsInitializing(false);
     }
@@ -260,10 +352,22 @@ export default function AgentReconciliationPage() {
   };
 
   const getMatchForBankEntry = (bankIndex: number): MatchDetails | null => {
-    if (!currentSession) return null;
+    if (!currentSession) {
+      console.log("❌ No current session in getMatchForBankEntry");
+      return null;
+    }
+
     const match = currentSession.matches.find(
       (m) => m.bank_index === bankIndex,
     );
+
+    console.log(`🔍 getMatchForBankEntry(${bankIndex}):`, {
+      totalMatches: currentSession.matches.length,
+      foundMatch: !!match,
+      matchStatus: match?.status,
+      matchGlIndexes: match?.gl_indexes,
+    });
+
     if (!match) return null;
 
     return {
@@ -300,53 +404,68 @@ export default function AgentReconciliationPage() {
     bankIndex: number,
     status: "approved" | "rejected",
   ) => {
-    if (!sessionId) return;
+    if (!sessionId || !currentSession) return;
 
     setIsUpdatingMatch(true);
     try {
-      const response = await fetch(
-        `/api/reconcile/session/${sessionId}/match/${bankIndex}/status`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ status }),
+      // 1. Update session data in frontend
+      const updatedSession = {
+        ...currentSession,
+        matches: currentSession.matches.map((match) =>
+          match.bank_index === bankIndex
+            ? {
+                ...match,
+                status: status as "pending" | "approved" | "rejected" | "verified",
+              }
+            : match,
+        ),
+      };
+
+      setCurrentSession(updatedSession);
+
+      // 2. Save to backend
+      const changeDescription = `Match status updated: Bank #${bankIndex} -> ${status}`;
+      
+      const response = await fetch(`/api/reconcile/session/${sessionId}/save`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          ...updatedSession,
+          bank_matches: updatedSession.matches,
+          change_description: changeDescription,
+        }),
+      });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error("❌ Failed to save session:", errorText);
+        throw new Error(`Failed to save session: ${errorText}`);
       }
 
-      // Update the local session state
-      setCurrentSession((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          matches: prev.matches.map((match) =>
-            match.bank_index === bankIndex
-              ? {
-                  ...match,
-                  status: status as
-                    | "pending"
-                    | "approved"
-                    | "rejected"
-                    | "verified",
-                }
-              : match,
-          ),
-        };
-      });
+      const result = await response.json();
+      console.log("✅ Session saved successfully:", result);
+
+      // 3. Update UI state
+      setAgentMessage(
+        `Successfully ${status} match for Bank #${bankIndex}`,
+      );
 
       // Close the modal
       setShowMatchModal(false);
       setSelectedMatch(null);
+      
     } catch (error) {
-      console.error("Error updating match status:", error);
+      console.error("❌ Match status update error:", error);
       setAgentMessage(
         `Error updating match status: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
+      
+      // Revert the local state on error
+      if (currentSession) {
+        setCurrentSession(currentSession);
+      }
     } finally {
       setIsUpdatingMatch(false);
     }
@@ -500,11 +619,19 @@ export default function AgentReconciliationPage() {
 
   const selectGlEntry = (glIndex: number) => {
     if (manualMatchMode && selectedBankEntry !== null) {
-      setSelectedGlEntries(prev => {
-        if (prev.includes(glIndex)) {
-          return prev.filter(index => index !== glIndex);
-        }
-        return [...prev, glIndex];
+      setSelectedGlEntries((prev) => {
+        const newEntries = prev.includes(glIndex) 
+          ? prev.filter((index) => index !== glIndex)
+          : [...prev, glIndex];
+        
+        console.log("🔍 GL entry selection:", {
+          glIndex,
+          selectedBankEntry,
+          prevEntries: prev,
+          newEntries: newEntries
+        });
+        
+        return newEntries;
       });
     }
   };
@@ -516,62 +643,103 @@ export default function AgentReconciliationPage() {
   };
 
   const createManualMatch = async () => {
-    if (!sessionId || selectedBankEntry === null || selectedGlEntries.length === 0) return;
+    if (
+      !sessionId ||
+      selectedBankEntry === null ||
+      selectedGlEntries.length === 0 ||
+      !currentSession
+    ) {
+      console.log("❌ Missing required data for manual match");
+      return;
+    }
 
     setIsCreatingManualMatch(true);
+    
+    // Store the original session state for potential reversion
+    const originalSession = currentSession;
+    
     try {
-      const response = await fetch(`/api/reconcile/session/${sessionId}/manual-match`, {
+      // 1. Create the new match
+      console.log("🔍 Manual match creation debug:", {
+        selectedBankEntry,
+        selectedGlEntries,
+        selectedGlEntriesLength: selectedGlEntries.length,
+        explanationText
+      });
+      
+      const newMatch: BankMatchData = {
+        bank_index: selectedBankEntry,
+        gl_indexes: selectedGlEntries,
+        confidence: 1.0,
+        reasoning: `Manual match created by user: ${explanationText}`,
+        status: "approved" as const,
+        linked_documents: [],
+        created_at: new Date().toISOString(),
+        verified_at: new Date().toISOString(),
+        user_feedback: explanationText,
+      };
+
+      // 2. Save to backend first (before updating local state)
+      const changeDescription = `Manual match created: Bank #${selectedBankEntry} -> GL [${selectedGlEntries.join(", ")}] - ${explanationText}`;
+      
+      const updatedSession = {
+        ...currentSession,
+        matches: [...currentSession.matches, newMatch],
+      };
+
+      console.log("🔍 Before save - matches", updatedSession.matches);
+      
+      const response = await fetch(`/api/reconcile/session/${sessionId}/save`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          bank_index: selectedBankEntry,
-          gl_indexes: selectedGlEntries,
-          explanation: explanationText,
+          ...updatedSession,
+          bank_matches: updatedSession.matches,
+          change_description: changeDescription,
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error("❌ Failed to save session:", errorText);
+        throw new Error(`Failed to save session: ${errorText}`);
       }
 
-      await response.json();
-      
-      // Update the local session state
-      setCurrentSession((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          matches: [
-            ...prev.matches,
-            {
-              bank_index: selectedBankEntry,
-              gl_indexes: selectedGlEntries,
-              confidence: 1.0, // Manual matches have 100% confidence
-              reasoning: `Manual match created by user: ${explanationText}`,
-              status: "approved" as const,
-              linked_documents: [],
-              created_at: new Date().toISOString(),
-              verified_at: new Date().toISOString(),
-              user_feedback: explanationText,
-            }
-          ],
-        };
-      });
+      const result = await response.json();
+      console.log("✅ Session saved successfully:", result);
 
-      setAgentMessage(`Successfully created manual match between Bank #${selectedBankEntry} and GL entries [${selectedGlEntries.join(", ")}]`);
+      console.log("🔍 About to update session state:", {
+        beforeMatches: currentSession.matches.length,
+        afterMatches: updatedSession.matches.length,
+        newMatch: newMatch
+      });
       
+      setCurrentSession(updatedSession);
+      
+      console.log("🔍 Session state updated, should trigger re-render");
+
+      // 4. Update UI state
+      setAgentMessage(
+        `Successfully created manual match between Bank #${selectedBankEntry} and GL entries [${selectedGlEntries.join(", ")}]`,
+      );
+
       // Reset selection
       setSelectedBankEntry(null);
       setSelectedGlEntries([]);
       setManualMatchMode(false);
       setShowExplanationModal(false);
       setExplanationText("");
+      
     } catch (error) {
+      console.error("❌ Manual match error:", error);
       setAgentMessage(
         `Error creating manual match: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
+      
+      // Revert to the original session state on error
+      setCurrentSession(originalSession);
     } finally {
       setIsCreatingManualMatch(false);
     }
@@ -616,11 +784,24 @@ export default function AgentReconciliationPage() {
   };
 
   const createGroupedData = () => {
+    console.log("🔄 Creating grouped data...", {
+      currentSession: !!currentSession,
+      bank_data_length: currentSession?.bank_data?.length || 0,
+      gl_data_length: currentSession?.gl_data?.length || 0,
+      matches_length: currentSession?.matches?.length || 0,
+      matches: currentSession?.matches?.map(m => ({ 
+        bank_index: m.bank_index, 
+        status: m.status, 
+        gl_indexes: m.gl_indexes 
+      })) || [],
+    });
+
     if (
       !currentSession ||
       !currentSession.bank_data.length ||
       !currentSession.gl_data.length
     ) {
+      console.log("❌ Missing session data, returning empty array");
       return [];
     }
 
@@ -632,9 +813,10 @@ export default function AgentReconciliationPage() {
           bankEntry,
           bankIndex,
           match,
-          date: bankEntry.date
-            ? new Date(bankEntry.date as string)
-            : new Date(0),
+          date:
+            bankEntry.Date || bankEntry.date
+              ? new Date((bankEntry.Date || bankEntry.date) as string)
+              : new Date(0),
         };
       },
     );
@@ -673,16 +855,16 @@ export default function AgentReconciliationPage() {
         bankMatch: bankTransaction.match,
         glEntries,
         // Determine group styling based on match status and confidence
-         groupStyle:
-           bankTransaction.match &&
-           bankTransaction.match.glIndexes.length > 0 &&
-           bankTransaction.match.status !== "rejected"
-             ? bankTransaction.match.status === "approved"
-               ? "approved"
-               : bankTransaction.match.confidence >= 0.7
-                 ? "high-confidence"
-                 : "low-confidence"
-             : "no-match",
+        groupStyle:
+          bankTransaction.match &&
+          bankTransaction.match.glIndexes.length > 0 &&
+          bankTransaction.match.status !== "rejected"
+            ? bankTransaction.match.status === "approved"
+              ? "approved"
+              : bankTransaction.match.confidence >= 0.7
+                ? "high-confidence"
+                : "low-confidence"
+            : "no-match",
         isUnmatchedGl: false,
         isRejected: bankTransaction.match?.status === "rejected",
         isUnmatchedBank: false,
@@ -698,13 +880,29 @@ export default function AgentReconciliationPage() {
       (group) => !group.isRejected && group.glEntries.length === 0,
     );
 
-    // Find unmatched GL entries (not matched to any active group)
+    console.log("🔍 Group separation results:", {
+      totalGroups: groups.length,
+      activeGroups: activeGroups.length,
+      rejectedGroups: rejectedGroups.length,
+      unmatchedBankGroups: unmatchedBankGroups.length,
+      activeGroupsDetails: activeGroups.map(g => ({
+        bankIndex: g.bankIndex,
+        status: g.bankMatch?.status,
+        glEntriesCount: g.glEntries.length
+      }))
+    });
+
+    // Find unmatched GL entries (not matched to any non-rejected match in the session)
     const matchedGlIndexes = new Set<number>();
-    activeGroups.forEach((group) => {
-      if (group.bankMatch && group.bankMatch.glIndexes.length > 0) {
-        group.bankMatch.glIndexes.forEach((glIndex) => {
+    const matchedBankIndexes = new Set<number>();
+
+    // Check all matches in the session, but only count non-rejected matches
+    currentSession.matches.forEach((match) => {
+      if (match.gl_indexes.length > 0 && match.status !== "rejected") {
+        match.gl_indexes.forEach((glIndex) => {
           matchedGlIndexes.add(glIndex);
         });
+        matchedBankIndexes.add(match.bank_index);
       }
     });
 
@@ -714,16 +912,19 @@ export default function AgentReconciliationPage() {
       .filter(({ glIndex }) => !matchedGlIndexes.has(glIndex));
 
     // Create separate unmatched entries for side-by-side display
-    const unmatchedBankEntries = [
-      ...rejectedGroups,
-      ...unmatchedBankGroups,
-    ].map((group) => ({
-      ...group,
-      isUnmatchedBank: true,
-      date: group.bankEntry?.date
-        ? new Date(group.bankEntry.date as string)
-        : new Date(0),
-    }));
+    // Filter out bank entries that have matches
+    const allUnmatchedGroups = [...rejectedGroups, ...unmatchedBankGroups];
+    
+    const unmatchedBankEntries = allUnmatchedGroups
+      .filter((group) => !matchedBankIndexes.has(group.bankIndex))
+      .map((group) => ({
+        ...group,
+        isUnmatchedBank: true,
+        date:
+          group.bankEntry?.Date || group.bankEntry?.date
+            ? new Date((group.bankEntry.Date || group.bankEntry.date) as string)
+            : new Date(0),
+      }));
 
     const unmatchedGlEntriesFormatted = unmatchedGlEntries.map(
       ({ glEntry, glIndex }) => ({
@@ -741,7 +942,10 @@ export default function AgentReconciliationPage() {
         isUnmatchedGl: true,
         isRejected: false,
         isUnmatchedBank: false,
-        date: glEntry.date ? new Date(glEntry.date as string) : new Date(0),
+        date:
+          glEntry.Date || glEntry.date
+            ? new Date((glEntry.Date || glEntry.date) as string)
+            : new Date(0),
       }),
     );
 
@@ -1049,25 +1253,29 @@ export default function AgentReconciliationPage() {
                   glEntries.length,
                 );
 
-                  return (
-                    <div key="unmatched-entries" className="space-y-2">
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-white">
-                          Unmatched Entries
-                        </h3>
-                        <div className="flex items-center space-x-3">
-                          <button
-                            type="button"
-                            onClick={toggleManualMatchMode}
-                            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                              manualMatchMode
-                                ? "bg-blue-600 text-white hover:bg-blue-700"
-                                : "bg-slate-600 text-slate-300 hover:bg-slate-700"
-                            }`}
-                          >
-                            {manualMatchMode ? "Exit Selection" : "Select Matches"}
-                          </button>
-                          {manualMatchMode && selectedBankEntry !== null && selectedGlEntries.length > 0 && (
+                return (
+                  <div key="unmatched-entries" className="space-y-2">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-white">
+                        Unmatched Entries
+                      </h3>
+                      <div className="flex items-center space-x-3">
+                        <button
+                          type="button"
+                          onClick={toggleManualMatchMode}
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                            manualMatchMode
+                              ? "bg-blue-600 text-white hover:bg-blue-700"
+                              : "bg-slate-600 text-slate-300 hover:bg-slate-700"
+                          }`}
+                        >
+                          {manualMatchMode
+                            ? "Exit Selection"
+                            : "Select Matches"}
+                        </button>
+                        {manualMatchMode &&
+                          selectedBankEntry !== null &&
+                          selectedGlEntries.length > 0 && (
                             <button
                               type="button"
                               onClick={confirmManualMatch}
@@ -1076,8 +1284,8 @@ export default function AgentReconciliationPage() {
                               Confirm Match
                             </button>
                           )}
-                        </div>
                       </div>
+                    </div>
                     {Array.from({ length: maxEntries }, (_, i) => (
                       <div
                         key={`unmatched-row-${i}`}
@@ -1086,15 +1294,18 @@ export default function AgentReconciliationPage() {
                         {/* Bank Entry Column */}
                         <div className="space-y-2">
                           {bankEntries[i] && (
-                            <div 
+                            <div
                               className={`rounded-lg border-2 p-2 transition-all duration-200 cursor-pointer ${
-                                manualMatchMode && selectedBankEntry === bankEntries[i].bankIndex
+                                manualMatchMode &&
+                                selectedBankEntry === bankEntries[i].bankIndex
                                   ? "bg-blue-900/20 border-blue-500"
                                   : manualMatchMode
                                     ? "bg-slate-800/20 border-slate-600 hover:border-blue-400"
                                     : "bg-slate-800/20 border-slate-600"
                               }`}
-                              onClick={() => selectBankEntry(bankEntries[i].bankIndex)}
+                              onClick={() =>
+                                selectBankEntry(bankEntries[i].bankIndex)
+                              }
                             >
                               <div className="flex items-center justify-between mb-1">
                                 <h4 className="text-sm font-semibold text-white">
@@ -1103,12 +1314,19 @@ export default function AgentReconciliationPage() {
                                     : "Unmatched"}{" "}
                                   Bank Entry #{bankEntries[i].bankIndex}
                                 </h4>
-                                <span className={`text-sm ${
-                                  manualMatchMode && selectedBankEntry === bankEntries[i].bankIndex
-                                    ? "text-blue-400"
-                                    : "text-slate-400"
-                                }`}>
-                                  {manualMatchMode && selectedBankEntry === bankEntries[i].bankIndex ? "✓" : "○"}
+                                <span
+                                  className={`text-sm ${
+                                    manualMatchMode &&
+                                    selectedBankEntry ===
+                                      bankEntries[i].bankIndex
+                                      ? "text-blue-400"
+                                      : "text-slate-400"
+                                  }`}
+                                >
+                                  {manualMatchMode &&
+                                  selectedBankEntry === bankEntries[i].bankIndex
+                                    ? "✓"
+                                    : "○"}
                                 </span>
                               </div>
                               <div className="grid grid-cols-2 gap-1 text-xs">
@@ -1145,27 +1363,45 @@ export default function AgentReconciliationPage() {
                         {/* GL Entry Column */}
                         <div className="space-y-2">
                           {glEntries[i] && (
-                            <div 
+                            <div
                               className={`rounded-lg border-2 p-2 transition-all duration-200 cursor-pointer ${
-                                manualMatchMode && selectedGlEntries.includes(glEntries[i].glEntries[0]?.glIndex)
+                                manualMatchMode &&
+                                selectedGlEntries.includes(
+                                  glEntries[i].glEntries[0]?.glIndex,
+                                )
                                   ? "bg-blue-900/20 border-blue-500"
-                                  : manualMatchMode && selectedBankEntry !== null
+                                  : manualMatchMode &&
+                                      selectedBankEntry !== null
                                     ? "bg-slate-800/20 border-slate-600 hover:border-blue-400"
                                     : "bg-slate-800/20 border-slate-600"
                               }`}
-                              onClick={() => selectGlEntry(glEntries[i].glEntries[0]?.glIndex)}
+                              onClick={() =>
+                                selectGlEntry(
+                                  glEntries[i].glEntries[0]?.glIndex,
+                                )
+                              }
                             >
                               <div className="flex items-center justify-between mb-1">
                                 <h4 className="text-sm font-semibold text-white">
                                   Unmatched GL Entry #
                                   {glEntries[i].glEntries[0]?.glIndex}
                                 </h4>
-                                <span className={`text-sm ${
-                                  manualMatchMode && selectedGlEntries.includes(glEntries[i].glEntries[0]?.glIndex)
-                                    ? "text-blue-400"
-                                    : "text-slate-400"
-                                }`}>
-                                  {manualMatchMode && selectedGlEntries.includes(glEntries[i].glEntries[0]?.glIndex) ? "✓" : "○"}
+                                <span
+                                  className={`text-sm ${
+                                    manualMatchMode &&
+                                    selectedGlEntries.includes(
+                                      glEntries[i].glEntries[0]?.glIndex,
+                                    )
+                                      ? "text-blue-400"
+                                      : "text-slate-400"
+                                  }`}
+                                >
+                                  {manualMatchMode &&
+                                  selectedGlEntries.includes(
+                                    glEntries[i].glEntries[0]?.glIndex,
+                                  )
+                                    ? "✓"
+                                    : "○"}
                                 </span>
                               </div>
                               <div className="grid grid-cols-2 gap-1 text-xs">
@@ -1285,19 +1521,18 @@ export default function AgentReconciliationPage() {
                           <span className={`text-lg ${getStatusColor()}`}>
                             {getStatusIcon()}
                           </span>
-                          {group.bankMatch && (
-                            <>
-                              {group.groupStyle === "approved" ? (
-                                <span className="text-green-400 text-xs font-medium">
-                                  Approved
-                                </span>
-                              ) : (
-                                <span className={`text-xs font-medium ${getStatusColor()}`}>
-                                  Pending Approval
-                                </span>
-                              )}
-                            </>
-                          )}
+                          {group.bankMatch &&
+                            (group.groupStyle === "approved" ? (
+                              <span className="text-green-400 text-xs font-medium">
+                                Approved
+                              </span>
+                            ) : (
+                              <span
+                                className={`text-xs font-medium ${getStatusColor()}`}
+                              >
+                                Pending Approval
+                              </span>
+                            ))}
                         </div>
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-sm">
@@ -1727,13 +1962,17 @@ export default function AgentReconciliationPage() {
               <div className="absolute inset-0 bg-slate-800/80 rounded-lg flex items-center justify-center z-10">
                 <div className="flex flex-col items-center space-y-3">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
-                  <p className="text-slate-300 text-sm">Creating manual match...</p>
+                  <p className="text-slate-300 text-sm">
+                    Creating manual match...
+                  </p>
                 </div>
               </div>
             )}
-            
+
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-semibold text-white">Explain Manual Match</h3>
+              <h3 className="text-xl font-semibold text-white">
+                Explain Manual Match
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowExplanationModal(false)}
@@ -1746,36 +1985,25 @@ export default function AgentReconciliationPage() {
             <div className="space-y-6">
               <div>
                 <p className="text-slate-300 text-sm mb-4">
-                  Please explain what to look for to find the supporting document for this match between Bank #{selectedBankEntry} and GL entries [{selectedGlEntries.join(", ")}].
+                  Please explain what to look for to find the supporting
+                  document for this match between Bank #{selectedBankEntry} and
+                  GL entries [{selectedGlEntries.join(", ")}].
                 </p>
-                
+
                 <div className="space-y-3">
                   <div className="bg-slate-700 p-3 rounded">
-                    <h4 className="text-sm font-medium text-white mb-2">Selected Bank Entry #{selectedBankEntry}</h4>
-                    {currentSession?.bank_data && selectedBankEntry !== null && currentSession.bank_data[selectedBankEntry] && (
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        {Object.entries(currentSession.bank_data[selectedBankEntry]).slice(0, 4).map(([key, value]) => (
-                          <div key={key}>
-                            <span className="text-slate-400 text-xs block">
-                              {key.replace(/_/g, " ").toUpperCase()}
-                            </span>
-                            <span className="text-white text-xs">
-                              {String(value)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="bg-slate-700 p-3 rounded">
-                    <h4 className="text-sm font-medium text-white mb-2">Selected GL Entries [{selectedGlEntries.join(", ")}]</h4>
-                    {selectedGlEntries.map((glIndex) => (
-                      <div key={glIndex} className="mb-2 last:mb-0">
-                        <span className="text-slate-400 text-xs">GL #{glIndex}:</span>
-                        {currentSession?.gl_data[glIndex] && (
-                          <div className="grid grid-cols-2 gap-2 text-xs mt-1">
-                            {Object.entries(currentSession.gl_data[glIndex]).slice(0, 4).map(([key, value]) => (
+                    <h4 className="text-sm font-medium text-white mb-2">
+                      Selected Bank Entry #{selectedBankEntry}
+                    </h4>
+                    {currentSession?.bank_data &&
+                      selectedBankEntry !== null &&
+                      currentSession.bank_data[selectedBankEntry] && (
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          {Object.entries(
+                            currentSession.bank_data[selectedBankEntry],
+                          )
+                            .slice(0, 4)
+                            .map(([key, value]) => (
                               <div key={key}>
                                 <span className="text-slate-400 text-xs block">
                                   {key.replace(/_/g, " ").toUpperCase()}
@@ -1785,6 +2013,33 @@ export default function AgentReconciliationPage() {
                                 </span>
                               </div>
                             ))}
+                        </div>
+                      )}
+                  </div>
+
+                  <div className="bg-slate-700 p-3 rounded">
+                    <h4 className="text-sm font-medium text-white mb-2">
+                      Selected GL Entries [{selectedGlEntries.join(", ")}]
+                    </h4>
+                    {selectedGlEntries.map((glIndex) => (
+                      <div key={glIndex} className="mb-2 last:mb-0">
+                        <span className="text-slate-400 text-xs">
+                          GL #{glIndex}:
+                        </span>
+                        {currentSession?.gl_data[glIndex] && (
+                          <div className="grid grid-cols-2 gap-2 text-xs mt-1">
+                            {Object.entries(currentSession.gl_data[glIndex])
+                              .slice(0, 4)
+                              .map(([key, value]) => (
+                                <div key={key}>
+                                  <span className="text-slate-400 text-xs block">
+                                    {key.replace(/_/g, " ").toUpperCase()}
+                                  </span>
+                                  <span className="text-white text-xs">
+                                    {String(value)}
+                                  </span>
+                                </div>
+                              ))}
                           </div>
                         )}
                       </div>
@@ -1794,7 +2049,10 @@ export default function AgentReconciliationPage() {
               </div>
 
               <div>
-                <label htmlFor="explanation" className="block text-sm font-medium text-white mb-2">
+                <label
+                  htmlFor="explanation"
+                  className="block text-sm font-medium text-white mb-2"
+                >
                   Explanation *
                 </label>
                 <textarea
@@ -1806,7 +2064,8 @@ export default function AgentReconciliationPage() {
                   required
                 />
                 <p className="text-slate-400 text-xs mt-1">
-                  This explanation will help the AI find the relevant supporting document.
+                  This explanation will help the AI find the relevant supporting
+                  document.
                 </p>
               </div>
 
@@ -1825,7 +2084,9 @@ export default function AgentReconciliationPage() {
                   disabled={!explanationText.trim() || isCreatingManualMatch}
                   className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
                 >
-                  {isCreatingManualMatch ? "Creating..." : "Create Manual Match"}
+                  {isCreatingManualMatch
+                    ? "Creating..."
+                    : "Create Manual Match"}
                 </button>
               </div>
             </div>

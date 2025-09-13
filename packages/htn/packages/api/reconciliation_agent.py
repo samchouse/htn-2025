@@ -508,13 +508,55 @@ Return your analysis as a JSON array of match objects."""
 
     def _save_session(self, session: ReconciliationSession) -> None:
         """Save session to file"""
-        session_file = self.data_dir / f"session_{session.session_id}.json"
+        session_file = self.data_dir / f"{session.session_id}.json"
+        session_data = session.model_dump()
+        cleaned_data = self._clean_nan_values(session_data)
         with open(session_file, "w", encoding="utf-8") as f:
-            json.dump(session.model_dump(), f, indent=2, default=str)
+            json.dump(cleaned_data, f, indent=2, default=str)
 
     def get_session(self, session_id: str) -> ReconciliationSession | None:
         """Retrieve session by ID"""
-        return self.sessions.get(session_id)
+        print(f"🔍 Getting session: {session_id}")
+        
+        # First check in-memory sessions
+        if session_id in self.sessions:
+            print(f"✅ Found session {session_id} in memory")
+            return self.sessions[session_id]
+        
+        # If not in memory, try to load from file
+        try:
+            session_file = self.data_dir / f"{session_id}.json"
+            print(f"📁 Looking for session file: {session_file}")
+            
+            if not session_file.exists():
+                # Try the old naming convention with double prefix
+                old_session_file = self.data_dir / f"session_{session_id}.json"
+                print(f"📁 Trying old naming convention: {old_session_file}")
+                if old_session_file.exists():
+                    session_file = old_session_file
+                    print(f"✅ Found session file with old naming: {session_file}")
+            
+            if session_file.exists():
+                print(f"📖 Loading session from file: {session_file}")
+                with open(session_file, encoding="utf-8") as f:
+                    session_data = json.load(f)
+                
+                print(f"📊 Session data loaded: {len(session_data.get('bank_matches', []))} matches")
+                
+                # Reconstruct the session object from file data
+                session = ReconciliationSession(**session_data)
+                # Store it in memory for future access
+                self.sessions[session_id] = session
+                print(f"✅ Session {session_id} loaded and stored in memory")
+                return session
+            else:
+                print(f"❌ Session file not found: {session_file}")
+        except Exception as e:
+            print(f"❌ Error loading session {session_id} from file: {e}")
+            logger.warning(f"Error loading session {session_id} from file: {e}")
+        
+        print(f"❌ Session {session_id} not found")
+        return None
 
     def update_match_status(
         self, session_id: str, bank_index: int, status: MatchStatus
@@ -670,3 +712,129 @@ Return your analysis as a JSON array of match objects."""
     def _build_error_result(self, error_message: str) -> dict[str, Any]:
         """Build error result structure"""
         return {"bank_matches": [], "error": error_message, "session_id": None}
+
+    def create_manual_match(
+        self, session_id: str, bank_index: int, gl_indexes: list[int], explanation: str
+    ) -> dict[str, Any]:
+        """Create a manual match between bank and GL entries"""
+        print(f"🔧 Creating manual match for session {session_id}: Bank {bank_index} -> GL {gl_indexes}")
+        
+        try:
+            # Load session data - try both naming conventions for backward compatibility
+            session_file = self.data_dir / f"{session_id}.json"
+            print(f"📁 Looking for session file: {session_file}")
+            
+            if not session_file.exists():
+                # Try the old naming convention with double prefix
+                old_session_file = self.data_dir / f"session_{session_id}.json"
+                print(f"📁 Trying old naming convention: {old_session_file}")
+                if old_session_file.exists():
+                    session_file = old_session_file
+                    print(f"✅ Found session file with old naming: {session_file}")
+                else:
+                    print(f"❌ Session file not found: {session_file} or {old_session_file}")
+                    raise ValueError(f"Session {session_id} not found")
+
+            print(f"📖 Loading session from file: {session_file}")
+            with open(session_file, encoding="utf-8") as f:
+                session_data = json.load(f)
+            
+            print(f"📊 Session data loaded: {len(session_data.get('bank_matches', []))} existing matches")
+
+            # Check if manual match already exists
+            existing_match = next(
+                (
+                    match
+                    for match in session_data.get("bank_matches", [])
+                    if match.get("bank_index") == bank_index
+                ),
+                None,
+            )
+
+            if existing_match:
+                raise ValueError("A match already exists for this bank entry")
+
+            # Create new manual match
+            new_match = {
+                "bank_index": bank_index,
+                "gl_indexes": gl_indexes,
+                "confidence": 1.0,  # Manual matches have 100% confidence
+                "reasoning": f"Manual match created by user: {explanation}",
+                "status": "approved",
+                "linked_documents": [],
+                "created_at": datetime.now().isoformat(),
+                "verified_at": datetime.now().isoformat(),
+                "user_feedback": explanation,
+            }
+
+            # Add the new match to the session
+            if "bank_matches" not in session_data:
+                session_data["bank_matches"] = []
+            session_data["bank_matches"].append(new_match)
+
+            # Update session metadata
+            session_data["last_updated"] = datetime.now().isoformat()
+            session_data["manual_matches_count"] = (
+                session_data.get("manual_matches_count", 0) + 1
+            )
+
+            # Save updated session data
+            with open(session_file, "w", encoding="utf-8") as f:
+                json.dump(session_data, f, indent=2, ensure_ascii=False)
+
+            # Update in-memory session if it exists
+            if session_id in self.sessions:
+                print(f"🔄 Updating in-memory session {session_id} with new manual match")
+                # Ensure the session_data has the correct structure for ReconciliationSession
+                if "bank_matches" in session_data and "matches" not in session_data:
+                    session_data["matches"] = session_data["bank_matches"]
+                # Reload the session from file to ensure consistency
+                updated_session = ReconciliationSession(**session_data)
+                self.sessions[session_id] = updated_session
+                print(f"✅ In-memory session {session_id} updated with {len(updated_session.matches)} matches")
+
+            logger.info(
+                f"Created manual match for session {session_id}: Bank #{bank_index} -> GL {gl_indexes}"
+            )
+
+            return new_match
+
+        except Exception as e:
+            logger.error(f"Error creating manual match: {str(e)}")
+            raise e
+
+    def save_session(self, session_id: str, session_data: dict, change_description: str) -> dict[str, Any]:
+        """Save the entire session data with change description"""
+        print(f"💾 Saving session {session_id} with change: {change_description}")
+        
+        try:
+            # Update session metadata
+            session_data["last_updated"] = datetime.now().isoformat()
+            session_data["change_description"] = change_description
+            
+            # Clean NaN values before saving
+            cleaned_session_data = self._clean_nan_values(session_data)
+            
+            # Save to file
+            session_file = self.data_dir / f"{session_id}.json"
+            with open(session_file, "w", encoding="utf-8") as f:
+                json.dump(cleaned_session_data, f, indent=2, ensure_ascii=False)
+            
+            # Update in-memory session if it exists
+            if session_id in self.sessions:
+                print(f"🔄 Updating in-memory session {session_id}")
+                updated_session = ReconciliationSession(**cleaned_session_data)
+                self.sessions[session_id] = updated_session
+                print(f"✅ In-memory session {session_id} updated with {len(updated_session.matches)} matches")
+            
+            logger.info(f"Saved session {session_id} with {len(session_data.get('bank_matches', []))} matches")
+            
+            return {
+                "session_id": session_id,
+                "matches_count": len(session_data.get("bank_matches", [])),
+                "saved_at": session_data["last_updated"]
+            }
+            
+        except Exception as e:
+            logger.error(f"Error saving session: {str(e)}")
+            raise e

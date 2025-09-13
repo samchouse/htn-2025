@@ -59,10 +59,14 @@ async def reconcile_files(
 @app.get("/reconcile/session/{session_id}")
 async def get_reconciliation_session(session_id: str):
     """Get reconciliation session details"""
+    print(f"🔍 GET /reconcile/session/{session_id}")
     try:
         session = reconciliation_agent.get_session(session_id)
         if not session:
+            print(f"❌ Session {session_id} not found")
             raise HTTPException(status_code=404, detail="Session not found")
+        
+        print(f"✅ Session {session_id} found with {len(session.matches)} matches")
 
         result = {
             "session_id": session.session_id,
@@ -71,6 +75,7 @@ async def get_reconciliation_session(session_id: str):
             "created_at": session.created_at,
             "updated_at": session.updated_at,
             "matches": [match.model_dump() for match in session.matches],
+            "bank_matches": [match.model_dump() for match in session.matches],  # Also include as bank_matches for frontend compatibility
             "agent_thoughts": [
                 thought.model_dump() for thought in session.agent_thoughts
             ],
@@ -253,7 +258,6 @@ async def process_document(
             status_code=500, detail=f"Error processing document: {str(e)}"
         ) from e
 
-
 @app.get("/download-document")
 async def download_document(path: str):
     """Download a document file from the data directory"""
@@ -277,7 +281,7 @@ async def download_document(path: str):
         except ValueError:
             raise HTTPException(
                 status_code=403, detail="Access denied: file outside allowed directory"
-            )
+            ) from ValueError
 
         # Check if file exists
         if not abs_file_path.exists():
@@ -297,7 +301,76 @@ async def download_document(path: str):
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Error serving file: {str(e)}"
+            status_code=500, detail=f"Error serving file: {str(e)}") from e
+
+@app.post("/reconcile/session/{session_id}/save")
+async def save_session(
+    session_id: str,
+    session_data: dict = Body(...),
+):
+    """Save the entire session with change description"""
+    print(f"💾 POST /reconcile/session/{session_id}/save")
+    print(f"📥 Session data received with {len(session_data.get('bank_matches', []))} matches")
+    try:
+        change_description = session_data.get("change_description", "Session updated")
+        
+        # Save session using the reconciliation agent
+        print("🔄 Calling reconciliation_agent.save_session...")
+        reconciliation_agent.save_session(session_id, session_data, change_description)
+        print("✅ Session saved successfully")
+
+        return {
+            "message": "Session saved successfully",
+            "session_id": session_id,
+            "matches_count": len(session_data.get("bank_matches", [])),
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error saving session: {str(e)}"
+        ) from e
+
+
+@app.post("/reconcile/session/{session_id}/manual-match")
+async def create_manual_match(
+    session_id: str,
+    manual_match_data: dict = Body(...),
+):
+    """Create a manual match between bank and GL entries"""
+    print(f"🔧 POST /reconcile/session/{session_id}/manual-match")
+    print(f"📥 Manual match data received: {manual_match_data}")
+    try:
+        bank_index = manual_match_data.get("bank_index")
+        gl_indexes = manual_match_data.get("gl_indexes")
+        explanation = manual_match_data.get("explanation")
+
+        if bank_index is None:
+            raise HTTPException(status_code=400, detail="bank_index is required")
+
+        if not gl_indexes or not isinstance(gl_indexes, list) or len(gl_indexes) == 0:
+            raise HTTPException(
+                status_code=400, detail="gl_indexes must be a non-empty array"
+            )
+
+        if not explanation or not isinstance(explanation, str) or not explanation.strip():
+            raise HTTPException(status_code=400, detail="explanation is required")
+
+        # Create manual match using the reconciliation agent
+        print("🔄 Calling reconciliation_agent.create_manual_match...")
+        result = reconciliation_agent.create_manual_match(
+            session_id, bank_index, gl_indexes, explanation
+        )
+        print(f"✅ Manual match created successfully: {result}")
+
+        return {
+            "message": "Manual match created successfully",
+            "match": result,
+            "session_updated": True,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error creating manual match: {str(e)}"
         ) from e
 
 

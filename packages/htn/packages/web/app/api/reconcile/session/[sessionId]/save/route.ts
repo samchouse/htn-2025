@@ -13,7 +13,7 @@ export async function POST(
     const pythonApiUrl = process.env.PYTHON_API_URL || "http://localhost:8000";
 
     const response = await fetch(
-      `${pythonApiUrl}/reconcile/session/${sessionId}/manual-match`,
+      `${pythonApiUrl}/reconcile/session/${sessionId}/save`,
       {
         method: "POST",
         headers: {
@@ -26,7 +26,7 @@ export async function POST(
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       return NextResponse.json(
-        { error: errorData.detail || "Failed to create manual match" },
+        { error: errorData.detail || "Failed to save session" },
         { status: response.status },
       );
     }
@@ -34,9 +34,9 @@ export async function POST(
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("Manual match error:", error);
+    console.error("Save session error:", error);
     return NextResponse.json(
-      { error: "Failed to create manual match" },
+      { error: "Failed to save session" },
       { status: 500 },
     );
   }
