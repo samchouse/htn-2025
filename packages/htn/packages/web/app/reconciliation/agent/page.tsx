@@ -68,6 +68,12 @@ export default function AgentReconciliationPage() {
   const [showDocumentUpload, setShowDocumentUpload] = useState(false);
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
+  const [manualMatchMode, setManualMatchMode] = useState(false);
+  const [selectedBankEntry, setSelectedBankEntry] = useState<number | null>(null);
+  const [selectedGlEntries, setSelectedGlEntries] = useState<number[]>([]);
+  const [showExplanationModal, setShowExplanationModal] = useState(false);
+  const [explanationText, setExplanationText] = useState("");
+  const [isCreatingManualMatch, setIsCreatingManualMatch] = useState(false);
 
   // Fetch session details to get bank_data and gl_data
   const fetchSessionDetails = async (sessionId: string) => {
@@ -399,6 +405,99 @@ export default function AgentReconciliationPage() {
     }
   };
 
+  // Manual match handlers
+  const toggleManualMatchMode = () => {
+    setManualMatchMode(!manualMatchMode);
+    setSelectedBankEntry(null);
+    setSelectedGlEntries([]);
+  };
+
+  const selectBankEntry = (bankIndex: number) => {
+    if (manualMatchMode) {
+      setSelectedBankEntry(bankIndex);
+      setSelectedGlEntries([]);
+    }
+  };
+
+  const selectGlEntry = (glIndex: number) => {
+    if (manualMatchMode && selectedBankEntry !== null) {
+      setSelectedGlEntries(prev => {
+        if (prev.includes(glIndex)) {
+          return prev.filter(index => index !== glIndex);
+        }
+        return [...prev, glIndex];
+      });
+    }
+  };
+
+  const confirmManualMatch = () => {
+    if (selectedBankEntry !== null && selectedGlEntries.length > 0) {
+      setShowExplanationModal(true);
+    }
+  };
+
+  const createManualMatch = async () => {
+    if (!sessionId || selectedBankEntry === null || selectedGlEntries.length === 0) return;
+
+    setIsCreatingManualMatch(true);
+    try {
+      const response = await fetch(`/api/reconcile/session/${sessionId}/manual-match`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          bank_index: selectedBankEntry,
+          gl_indexes: selectedGlEntries,
+          explanation: explanationText,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      await response.json();
+      
+      // Update the local session state
+      setCurrentSession((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          matches: [
+            ...prev.matches,
+            {
+              bank_index: selectedBankEntry,
+              gl_indexes: selectedGlEntries,
+              confidence: 1.0, // Manual matches have 100% confidence
+              reasoning: `Manual match created by user: ${explanationText}`,
+              status: "approved" as const,
+              linked_documents: [],
+              created_at: new Date().toISOString(),
+              verified_at: new Date().toISOString(),
+              user_feedback: explanationText,
+            }
+          ],
+        };
+      });
+
+      setAgentMessage(`Successfully created manual match between Bank #${selectedBankEntry} and GL entries [${selectedGlEntries.join(", ")}]`);
+      
+      // Reset selection
+      setSelectedBankEntry(null);
+      setSelectedGlEntries([]);
+      setManualMatchMode(false);
+      setShowExplanationModal(false);
+      setExplanationText("");
+    } catch (error) {
+      setAgentMessage(
+        `Error creating manual match: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsCreatingManualMatch(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "initial_matching":
@@ -495,18 +594,16 @@ export default function AgentReconciliationPage() {
         bankMatch: bankTransaction.match,
         glEntries,
         // Determine group styling based on match status and confidence
-        groupStyle:
-          bankTransaction.match &&
-          bankTransaction.match.glIndexes.length > 0 &&
-          bankTransaction.match.status !== "rejected"
-            ? bankTransaction.match.status === "approved"
-              ? "approved"
-              : bankTransaction.match.confidence >= 0.8
-                ? "high-confidence"
-                : bankTransaction.match.confidence >= 0.5
-                  ? "medium-confidence"
-                  : "low-confidence"
-            : "no-match",
+         groupStyle:
+           bankTransaction.match &&
+           bankTransaction.match.glIndexes.length > 0 &&
+           bankTransaction.match.status !== "rejected"
+             ? bankTransaction.match.status === "approved"
+               ? "approved"
+               : bankTransaction.match.confidence >= 0.7
+                 ? "high-confidence"
+                 : "low-confidence"
+             : "no-match",
         isUnmatchedGl: false,
         isRejected: bankTransaction.match?.status === "rejected",
         isUnmatchedBank: false,
@@ -843,11 +940,11 @@ export default function AgentReconciliationPage() {
               <div className="flex space-x-6 text-sm">
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-green-500 rounded" />
-                  <span className="text-slate-300">Approved</span>
+                  <span className="text-slate-300">High Confidence Match</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-yellow-500 rounded" />
-                  <span className="text-slate-300">Pending</span>
+                  <span className="text-slate-300">Low Confidence Match</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-slate-500 rounded" />
@@ -873,11 +970,35 @@ export default function AgentReconciliationPage() {
                   glEntries.length,
                 );
 
-                return (
-                  <div key="unmatched-entries" className="space-y-2">
-                    <h3 className="text-lg font-semibold text-white mb-4">
-                      Unmatched Entries
-                    </h3>
+                  return (
+                    <div key="unmatched-entries" className="space-y-2">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-white">
+                          Unmatched Entries
+                        </h3>
+                        <div className="flex items-center space-x-3">
+                          <button
+                            type="button"
+                            onClick={toggleManualMatchMode}
+                            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                              manualMatchMode
+                                ? "bg-blue-600 text-white hover:bg-blue-700"
+                                : "bg-slate-600 text-slate-300 hover:bg-slate-700"
+                            }`}
+                          >
+                            {manualMatchMode ? "Exit Selection" : "Select Matches"}
+                          </button>
+                          {manualMatchMode && selectedBankEntry !== null && selectedGlEntries.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={confirmManualMatch}
+                              className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors"
+                            >
+                              Confirm Match
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     {Array.from({ length: maxEntries }, (_, i) => (
                       <div
                         key={`unmatched-row-${i}`}
@@ -886,7 +1007,16 @@ export default function AgentReconciliationPage() {
                         {/* Bank Entry Column */}
                         <div className="space-y-2">
                           {bankEntries[i] && (
-                            <div className="rounded-lg border-2 p-2 bg-slate-800/20 border-slate-600">
+                            <div 
+                              className={`rounded-lg border-2 p-2 transition-all duration-200 cursor-pointer ${
+                                manualMatchMode && selectedBankEntry === bankEntries[i].bankIndex
+                                  ? "bg-blue-900/20 border-blue-500"
+                                  : manualMatchMode
+                                    ? "bg-slate-800/20 border-slate-600 hover:border-blue-400"
+                                    : "bg-slate-800/20 border-slate-600"
+                              }`}
+                              onClick={() => selectBankEntry(bankEntries[i].bankIndex)}
+                            >
                               <div className="flex items-center justify-between mb-1">
                                 <h4 className="text-sm font-semibold text-white">
                                   {bankEntries[i].isRejected
@@ -894,8 +1024,12 @@ export default function AgentReconciliationPage() {
                                     : "Unmatched"}{" "}
                                   Bank Entry #{bankEntries[i].bankIndex}
                                 </h4>
-                                <span className="text-sm text-slate-400">
-                                  ○
+                                <span className={`text-sm ${
+                                  manualMatchMode && selectedBankEntry === bankEntries[i].bankIndex
+                                    ? "text-blue-400"
+                                    : "text-slate-400"
+                                }`}>
+                                  {manualMatchMode && selectedBankEntry === bankEntries[i].bankIndex ? "✓" : "○"}
                                 </span>
                               </div>
                               <div className="grid grid-cols-2 gap-1 text-xs">
@@ -932,14 +1066,27 @@ export default function AgentReconciliationPage() {
                         {/* GL Entry Column */}
                         <div className="space-y-2">
                           {glEntries[i] && (
-                            <div className="rounded-lg border-2 p-2 bg-slate-800/20 border-slate-600">
+                            <div 
+                              className={`rounded-lg border-2 p-2 transition-all duration-200 cursor-pointer ${
+                                manualMatchMode && selectedGlEntries.includes(glEntries[i].glEntries[0]?.glIndex)
+                                  ? "bg-blue-900/20 border-blue-500"
+                                  : manualMatchMode && selectedBankEntry !== null
+                                    ? "bg-slate-800/20 border-slate-600 hover:border-blue-400"
+                                    : "bg-slate-800/20 border-slate-600"
+                              }`}
+                              onClick={() => selectGlEntry(glEntries[i].glEntries[0]?.glIndex)}
+                            >
                               <div className="flex items-center justify-between mb-1">
                                 <h4 className="text-sm font-semibold text-white">
                                   Unmatched GL Entry #
                                   {glEntries[i].glEntries[0]?.glIndex}
                                 </h4>
-                                <span className="text-sm text-slate-400">
-                                  ○
+                                <span className={`text-sm ${
+                                  manualMatchMode && selectedGlEntries.includes(glEntries[i].glEntries[0]?.glIndex)
+                                    ? "text-blue-400"
+                                    : "text-slate-400"
+                                }`}>
+                                  {manualMatchMode && selectedGlEntries.includes(glEntries[i].glEntries[0]?.glIndex) ? "✓" : "○"}
                                 </span>
                               </div>
                               <div className="grid grid-cols-2 gap-1 text-xs">
@@ -972,8 +1119,6 @@ export default function AgentReconciliationPage() {
                     return "bg-green-900/20 border-green-500 hover:bg-green-900/30";
                   case "high-confidence":
                     return "bg-green-800/20 border-green-400 hover:bg-green-800/30";
-                  case "medium-confidence":
-                    return "bg-yellow-800/20 border-yellow-400 hover:bg-yellow-800/30";
                   case "low-confidence":
                     return "bg-yellow-800/20 border-yellow-400 hover:bg-yellow-800/30";
                   default:
@@ -986,7 +1131,7 @@ export default function AgentReconciliationPage() {
                   case "approved":
                     return "✓";
                   case "high-confidence":
-                  case "medium-confidence":
+                    return "?";
                   case "low-confidence":
                     return "?";
                   default:
@@ -1000,8 +1145,6 @@ export default function AgentReconciliationPage() {
                     return "text-green-400";
                   case "high-confidence":
                     return "text-green-400";
-                  case "medium-confidence":
-                    return "text-yellow-400";
                   case "low-confidence":
                     return "text-yellow-400";
                   default:
@@ -1064,9 +1207,17 @@ export default function AgentReconciliationPage() {
                             {getStatusIcon()}
                           </span>
                           {group.bankMatch && (
-                            <span className="text-slate-400 text-xs">
-                              {(group.bankMatch.confidence * 100).toFixed(0)}%
-                            </span>
+                            <>
+                              {group.groupStyle === "approved" ? (
+                                <span className="text-green-400 text-xs font-medium">
+                                  Approved
+                                </span>
+                              ) : (
+                                <span className={`text-xs font-medium ${getStatusColor()}`}>
+                                  Pending Approval
+                                </span>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
@@ -1469,6 +1620,121 @@ export default function AgentReconciliationPage() {
                   {isUploadingDocuments
                     ? "Uploading..."
                     : `Upload ${uploadedDocuments.length} Document${uploadedDocuments.length !== 1 ? "s" : ""}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Match Explanation Modal */}
+      {showExplanationModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
+            {/* Loading Overlay */}
+            {isCreatingManualMatch && (
+              <div className="absolute inset-0 bg-slate-800/80 rounded-lg flex items-center justify-center z-10">
+                <div className="flex flex-col items-center space-y-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
+                  <p className="text-slate-300 text-sm">Creating manual match...</p>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-white">Explain Manual Match</h3>
+              <button
+                type="button"
+                onClick={() => setShowExplanationModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <p className="text-slate-300 text-sm mb-4">
+                  Please explain what to look for to find the supporting document for this match between Bank #{selectedBankEntry} and GL entries [{selectedGlEntries.join(", ")}].
+                </p>
+                
+                <div className="space-y-3">
+                  <div className="bg-slate-700 p-3 rounded">
+                    <h4 className="text-sm font-medium text-white mb-2">Selected Bank Entry #{selectedBankEntry}</h4>
+                    {currentSession?.bank_data && selectedBankEntry !== null && currentSession.bank_data[selectedBankEntry] && (
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        {Object.entries(currentSession.bank_data[selectedBankEntry]).slice(0, 4).map(([key, value]) => (
+                          <div key={key}>
+                            <span className="text-slate-400 text-xs block">
+                              {key.replace(/_/g, " ").toUpperCase()}
+                            </span>
+                            <span className="text-white text-xs">
+                              {String(value)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="bg-slate-700 p-3 rounded">
+                    <h4 className="text-sm font-medium text-white mb-2">Selected GL Entries [{selectedGlEntries.join(", ")}]</h4>
+                    {selectedGlEntries.map((glIndex) => (
+                      <div key={glIndex} className="mb-2 last:mb-0">
+                        <span className="text-slate-400 text-xs">GL #{glIndex}:</span>
+                        {currentSession?.gl_data[glIndex] && (
+                          <div className="grid grid-cols-2 gap-2 text-xs mt-1">
+                            {Object.entries(currentSession.gl_data[glIndex]).slice(0, 4).map(([key, value]) => (
+                              <div key={key}>
+                                <span className="text-slate-400 text-xs block">
+                                  {key.replace(/_/g, " ").toUpperCase()}
+                                </span>
+                                <span className="text-white text-xs">
+                                  {String(value)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="explanation" className="block text-sm font-medium text-white mb-2">
+                  Explanation *
+                </label>
+                <textarea
+                  id="explanation"
+                  value={explanationText}
+                  onChange={(e) => setExplanationText(e.target.value)}
+                  placeholder="Describe what to look for in the supporting document (e.g., vendor name, invoice number, date, amount, purpose of transaction, etc.)"
+                  className="w-full h-32 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-400 resize-none"
+                  required
+                />
+                <p className="text-slate-400 text-xs mt-1">
+                  This explanation will help the AI find the relevant supporting document.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex space-x-4 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowExplanationModal(false)}
+                  className="flex-1 bg-slate-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={createManualMatch}
+                  disabled={!explanationText.trim() || isCreatingManualMatch}
+                  className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isCreatingManualMatch ? "Creating..." : "Create Manual Match"}
                 </button>
               </div>
             </div>
