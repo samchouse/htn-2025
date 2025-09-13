@@ -35,7 +35,7 @@ class ReconciliationAgent:
             bank_df = pd.read_csv(io.BytesIO(bank_statement_content))
             gl_df = pd.read_csv(io.BytesIO(gl_content))
 
-            print(bank_df.iloc[0:20])
+            print(bank_df.iloc[0:20], gl_df.iloc[0:20])
 
             response = self.client.responses.parse(
                 model="gpt-4o",
@@ -94,3 +94,10 @@ class ReconciliationAgent:
         except Exception as e:
             logger.error(f"Reconciliation error: {str(e)}")
             return self._build_error_result(str(e))
+
+    def _build_error_result(self, error_message: str) -> dict[str, Any]:
+        """Build error result structure"""
+        return {
+            "bank_matches": [],
+            "error": error_message,
+        }
