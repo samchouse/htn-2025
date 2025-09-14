@@ -1,0 +1,13 @@
+{
+  "timestamp": "2025-09-13T20:15:46.173766",
+  "original_filename": "receipt1234.png",
+  "extraction": {
+    "seller": "K-Food",
+    "customer": "N/A",
+    "date": "2025-01-13",
+    "amount": 100.0,
+    "invoice_number": "1234",
+    "description": "Receipt for food purchase"
+  },
+  "processing_notes": "Successfully processed document: receipt1234.png"
+}

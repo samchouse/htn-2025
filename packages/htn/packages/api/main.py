@@ -229,12 +229,12 @@ async def finalize_reconciliation(session_id: str):
 
 @app.post("/process-document")
 async def process_document(
-    document: UploadFile = File(..., description="PDF document to process"),
+    document: UploadFile = File(..., description="PDF, PNG, or JPEG document to process"),
 ):
-    """Extract seller, customer, date, amount, invoice number, and description from PDF document"""
+    """Extract seller, customer, date, amount, invoice number, and description from PDF, PNG, or JPEG document"""
     # Validate document file
-    if not document.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Document must be a PDF file")
+    if not (document.filename.lower().endswith((".pdf", ".png", ".jpg", ".jpeg"))):
+        raise HTTPException(status_code=400, detail="Document must be a PDF, PNG, or JPEG file")
 
     try:
         # Read file contents

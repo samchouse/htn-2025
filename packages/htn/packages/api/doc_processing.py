@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 import re
@@ -6,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 import fitz  # PyMuPDF
+import pytesseract
 from openai import OpenAI
+from PIL import Image
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -38,27 +41,42 @@ class DocumentProcessor:
         self.data_dir.mkdir(exist_ok=True)
 
     def process_document(
-        self, pdf_content: bytes, filename: str = "document.pdf"
+        self, document_content: bytes, filename: str = "document.pdf"
     ) -> dict[str, Any]:
         """
-        Process PDF document to extract seller, customer, date, amount, invoice number, and description
+        Process document (PDF or PNG) to extract seller, customer, date, amount, invoice number, and description
         """
-        self._save_original_pdf(pdf_content, filename)
+        self._save_original_document(document_content, filename)
 
         try:
-            # Extract text from PDF
-            pdf_text = self._extract_text_from_pdf(pdf_content)
-            logger.info(f"Extracted text from PDF: {len(pdf_text)} characters")
+            # Detect file type and extract text accordingly
+            file_type = self._detect_file_type(document_content, filename)
+            logger.info(f"Detected file type: {file_type}")
+            
+            if file_type == "pdf":
+                extracted_text = self._extract_text_from_pdf(document_content)
+                logger.info(f"Extracted text from PDF: {len(extracted_text)} characters")
+            elif file_type == "png":
+                extracted_text = self._extract_text_from_png(document_content)
+                logger.info(f"Extracted text from PNG using OCR: {len(extracted_text)} characters")
+            elif file_type == "jpeg":
+                extracted_text = self._extract_text_from_jpeg(document_content)
+                logger.info(f"Extracted text from JPEG using OCR: {len(extracted_text)} characters")
+            else:
+                raise Exception(f"Unsupported file type: {file_type}")
 
-            if not pdf_text.strip():
-                raise Exception("No text could be extracted from the PDF")
+            if not extracted_text.strip():
+                raise Exception(f"No text could be extracted from the {file_type.upper()}")
+
+            # Update the variable name in the rest of the method
+            pdf_text = extracted_text
 
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
-                        "content": """You are a document extraction expert. Extract the following information from the provided PDF document text:
+                        "content": """You are a document extraction expert. Extract the following information from the provided document text (which may come from PDF or OCR from PNG/JPEG images):
                         - seller: The name of the seller/vendor
                         - customer: The name of the customer/buyer
                         - date: The document date (format as YYYY-MM-DD)
@@ -72,7 +90,7 @@ class DocumentProcessor:
                     },
                     {
                         "role": "user",
-                        "content": f"""Please extract the document information from the following PDF text according to the schema. Return only valid JSON that matches this structure:
+                        "content": f"""Please extract the document information from the following document text (extracted from PDF or OCR from PNG/JPEG) according to the schema. Return only valid JSON that matches this structure:
 
 {{
   "seller": "string",
@@ -85,7 +103,7 @@ class DocumentProcessor:
 
 If information is not found, use "N/A" for text fields and 0.0 for amount.
 
-PDF Text:
+Document Text:
 {pdf_text}""",
                     },
                 ],
@@ -132,29 +150,49 @@ PDF Text:
             logger.error(f"Document processing error: {str(e)}")
             return self._build_error_result(str(e))
 
-    def _save_original_pdf(self, pdf_content: bytes, filename: str) -> Path:
-        """Save the original PDF file to the data directory"""
+    def _detect_file_type(self, content: bytes, filename: str) -> str:
+        """Detect file type from content and filename"""
+        # Check file extension first
+        extension = Path(filename).suffix.lower()
+        if extension in ['.pdf']:
+            return 'pdf'
+        elif extension in ['.png']:
+            return 'png'
+        elif extension in ['.jpg', '.jpeg']:
+            return 'jpeg'
+        # If extension is not reliable, check magic bytes
+        if content.startswith(b'%PDF'):
+            return 'pdf'
+        elif content.startswith(b'\x89PNG'):
+            return 'png'
+        
+        # Default to PDF for backward compatibility
+        logger.warning(f"Could not detect file type for {filename}, defaulting to PDF")
+        return 'pdf'
+
+    def _save_original_document(self, document_content: bytes, filename: str) -> Path:
+        """Save the original document file to the data directory"""
         try:
-            # Create the PDF storage directory
-            pdf_dir = self.data_dir / "meta"
-            pdf_dir.mkdir(exist_ok=True)
+            # Create the document storage directory
+            doc_dir = self.data_dir / "meta"
+            doc_dir.mkdir(exist_ok=True)
 
             # Generate unique filename with timestamp to avoid conflicts
             base_name = Path(filename).stem
             extension = Path(filename).suffix or ".pdf"
             unique_filename = f"{base_name}{extension}"
 
-            file_path = pdf_dir / unique_filename
+            file_path = doc_dir / unique_filename
 
-            # Write the PDF content to file
+            # Write the document content to file
             with open(file_path, "wb") as f:
-                f.write(pdf_content)
+                f.write(document_content)
 
-            logger.info(f"Original PDF saved to: {file_path}")
+            logger.info(f"Original document saved to: {file_path}")
             return file_path
 
         except Exception as e:
-            logger.error(f"Error saving original PDF: {str(e)}")
+            logger.error(f"Error saving original document: {str(e)}")
             # Don't raise an exception here as this is not critical for processing
             return None
 
@@ -175,6 +213,42 @@ PDF Text:
         except Exception as e:
             logger.error(f"Error extracting text from PDF: {str(e)}")
             raise Exception(f"Failed to extract text from PDF: {str(e)}") from e
+
+    def _extract_text_from_png(self, png_content: bytes) -> str:
+        """Extract text from PNG content using Tesseract OCR"""
+        try:
+            # Open image from bytes
+            image = Image.open(io.BytesIO(png_content))
+            
+            # Convert to RGB if necessary (Tesseract works better with RGB)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # Use Tesseract to extract text
+            text = pytesseract.image_to_string(image, config='--psm 6')
+            
+            return text.strip()
+        except Exception as e:
+            logger.error(f"Error extracting text from PNG: {str(e)}")
+            raise Exception(f"Failed to extract text from PNG: {str(e)}") from e
+
+    def _extract_text_from_jpeg(self, jpeg_content: bytes) -> str:
+        """Extract text from JPEG content using Tesseract OCR"""
+        try:
+            # Open image from bytes
+            image = Image.open(io.BytesIO(jpeg_content))
+            
+            # Convert to RGB if necessary (Tesseract works better with RGB)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # Use Tesseract to extract text
+            text = pytesseract.image_to_string(image, config='--psm 6')
+            
+            return text.strip()
+        except Exception as e:
+            logger.error(f"Error extracting text from JPEG: {str(e)}")
+            raise Exception(f"Failed to extract text from JPEG: {str(e)}") from e
 
     def _extract_from_text(self, text: str) -> dict[str, Any]:
         """Fallback method to extract data from unstructured text response"""
