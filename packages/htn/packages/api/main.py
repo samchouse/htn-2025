@@ -374,6 +374,83 @@ async def create_manual_match(
         ) from e
 
 
+@app.post("/reconcile/session/{session_id}/match/{bank_index}/reject-document")
+async def reject_document_and_research(
+    session_id: str,
+    bank_index: int,
+    rejection_data: dict = Body(...),
+):
+    """Reject a document and trigger a new search for better matches"""
+    print(f"🔧 POST /reconcile/session/{session_id}/match/{bank_index}/reject-document")
+    print(f"📥 Rejection data received: {rejection_data}")
+    
+    try:
+        document_path = rejection_data.get("document_path")
+        rejection_reason = rejection_data.get("rejection_reason", "")
+        
+        if not document_path:
+            raise HTTPException(status_code=400, detail="document_path is required")
+        
+        # Get the session
+        session = reconciliation_agent.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Find the match and remove the rejected document from linked_documents
+        match_found = False
+        for match in session.matches:
+            if match.bank_index == bank_index:
+                match_found = True
+                # Remove the rejected document from linked documents
+                if document_path in match.linked_documents:
+                    match.linked_documents.remove(document_path)
+                    print(f"🗑️ Removed rejected document: {document_path}")
+                
+                # Clear all linked documents to trigger a fresh search
+                match.linked_documents = []
+                print(f"🔄 Cleared all linked documents for bank_index {bank_index}")
+                break
+        
+        if not match_found:
+            raise HTTPException(status_code=404, detail="Match not found")
+        
+        # Save the session
+        reconciliation_agent._save_session(session)
+        
+        # Trigger a new document search
+        print(f"🔍 Triggering new document search for bank_index {bank_index}")
+        new_matching_docs = reconciliation_agent.find_document_matches(session_id, bank_index)
+        
+        # Update the match with new documents (excluding the rejected one)
+        for match in session.matches:
+            if match.bank_index == bank_index:
+                # Filter out the rejected document from new matches
+                filtered_docs = [
+                    doc for doc in new_matching_docs 
+                    if doc.get("file_path") != document_path
+                ]
+                match.linked_documents = [doc["file_path"] for doc in filtered_docs]
+                break
+        
+        # Save the session again with new documents
+        reconciliation_agent._save_session(session)
+        
+        return {
+            "message": "Document rejected and new search completed",
+            "session_id": session_id,
+            "bank_index": bank_index,
+            "rejected_document": document_path,
+            "rejection_reason": rejection_reason,
+            "new_matches_found": len(new_matching_docs),
+            "new_documents": new_matching_docs,
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error rejecting document: {str(e)}"
+        ) from e
+
+
 @app.get("/scalar", include_in_schema=False)
 async def scalar_html():
     return get_scalar_api_reference(

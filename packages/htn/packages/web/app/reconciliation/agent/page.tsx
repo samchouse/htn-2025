@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 
 interface BankMatchData {
@@ -49,6 +49,14 @@ interface MatchDetails {
   status: string;
 }
 
+interface Document {
+  filename?: string;
+  file_path?: string;
+  confidence?: number;
+  extraction?: Record<string, unknown>;
+  processing_notes?: string;
+}
+
 export default function AgentReconciliationPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
@@ -65,6 +73,9 @@ export default function AgentReconciliationPage() {
   const [showMatchModal, setShowMatchModal] = useState(false);
   const [agentMessage, setAgentMessage] = useState<string>("");
   const [isUpdatingMatch, setIsUpdatingMatch] = useState(false);
+  const [updatingMatches, setUpdatingMatches] = useState<Set<number>>(
+    new Set(),
+  );
   const [showDocumentUpload, setShowDocumentUpload] = useState(false);
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
@@ -76,10 +87,178 @@ export default function AgentReconciliationPage() {
   const [showExplanationModal, setShowExplanationModal] = useState(false);
   const [explanationText, setExplanationText] = useState("");
   const [isCreatingManualMatch, setIsCreatingManualMatch] = useState(false);
-  const [matchingDocuments, setMatchingDocuments] = useState<any[]>([]);
+  const [matchingDocuments, setMatchingDocuments] = useState<Document[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
+  const [matchesWithDocuments, setMatchesWithDocuments] = useState<Set<number>>(
+    new Set(),
+  );
+  const [searchingDocumentsFor, setSearchingDocumentsFor] = useState<
+    Set<number>
+  >(new Set());
+  const [documentsByMatch, setDocumentsByMatch] = useState<
+    Map<number, Document[]>
+  >(new Map());
+  const [showDocumentSidePanel, setShowDocumentSidePanel] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState<Document | null>(
+    null,
+  );
+  const [rejectionComment, setRejectionComment] = useState("");
+  const [, setIsRejectingDocument] = useState(false);
+  const [rejectionQueue, setRejectionQueue] = useState<
+    Array<{
+      id: string;
+      document: Document;
+      bankIndex: number;
+      comment: string;
+      status: "pending" | "processing" | "completed" | "error";
+    }>
+  >([]);
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+
+  // Process rejection queue
+  useEffect(() => {
+    const processQueue = async () => {
+      if (rejectionQueue.length === 0 || isProcessingQueue) return;
+
+      const pendingItems = rejectionQueue.filter(
+        (item) => item.status === "pending",
+      );
+      if (pendingItems.length === 0) return;
+
+      setIsProcessingQueue(true);
+
+      for (const item of pendingItems) {
+        // Mark as processing
+        setRejectionQueue((prev) =>
+          prev.map((queueItem) =>
+            queueItem.id === item.id
+              ? { ...queueItem, status: "processing" as const }
+              : queueItem,
+          ),
+        );
+
+        try {
+          const response = await fetch(
+            `/api/reconcile/session/${sessionId}/match/${item.bankIndex}/reject-document`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                document_path: item.document.file_path,
+                rejection_reason: item.comment,
+              }),
+            },
+          );
+
+          if (!response.ok) {
+            throw new Error(
+              `Failed to reject document: ${response.statusText}`,
+            );
+          }
+
+          const result = await response.json();
+
+          // Update documents cache
+          if (result.new_documents) {
+            setDocumentsByMatch(
+              (prev) => new Map(prev.set(item.bankIndex, result.new_documents)),
+            );
+
+            // Update matches with documents set
+            if (result.new_documents.length > 0) {
+              setMatchesWithDocuments(
+                (prev) => new Set([...prev, item.bankIndex]),
+              );
+            } else {
+              setMatchesWithDocuments((prev) => {
+                const newSet = new Set(prev);
+                newSet.delete(item.bankIndex);
+                return newSet;
+              });
+            }
+          }
+
+          // Mark as completed
+          setRejectionQueue((prev) =>
+            prev.map((queueItem) =>
+              queueItem.id === item.id
+                ? { ...queueItem, status: "completed" as const }
+                : queueItem,
+            ),
+          );
+
+          // Update agent message
+          setAgentMessage(
+            `Document rejected: "${item.comment}". Found ${result.new_matches_found} new matching documents.`,
+          );
+        } catch (error) {
+          console.error("Error rejecting document:", error);
+
+          // Mark as error
+          setRejectionQueue((prev) =>
+            prev.map((queueItem) =>
+              queueItem.id === item.id
+                ? { ...queueItem, status: "error" as const }
+                : queueItem,
+            ),
+          );
+
+          setAgentMessage(
+            `Error rejecting document: ${error instanceof Error ? error.message : "Unknown error"}`,
+          );
+        }
+
+        // Add a small delay between processing items for smooth animation
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      // Remove completed items after a delay
+      setTimeout(() => {
+        setRejectionQueue((prev) =>
+          prev.filter((item) => item.status !== "completed"),
+        );
+      }, 2000);
+
+      setIsProcessingQueue(false);
+    };
+
+    processQueue();
+  }, [rejectionQueue, isProcessingQueue, sessionId]);
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && showMatchModal) {
+        setShowMatchModal(false);
+        setSelectedMatch(null);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [showMatchModal]);
+
+  // Load documents when modal opens for a match that has documents
+  useEffect(() => {
+    if (
+      showMatchModal &&
+      selectedMatch &&
+      matchesWithDocuments.has(selectedMatch.bankIndex)
+    ) {
+      // If we don't have documents cached for this match, fetch them
+      if (!documentsByMatch.has(selectedMatch.bankIndex)) {
+        getDocumentsForMatch(selectedMatch.bankIndex).then((documents) => {
+          setDocumentsByMatch(
+            (prev) => new Map(prev.set(selectedMatch.bankIndex, documents)),
+          );
+        });
+      }
+    }
+  }, [showMatchModal, selectedMatch, matchesWithDocuments, documentsByMatch]);
 
   // Helper functions for group hover effects
   const handleGroupMouseEnter = (groupId: string) => {
@@ -428,7 +607,9 @@ export default function AgentReconciliationPage() {
   ) => {
     if (!sessionId || !currentSession) return;
 
-    setIsUpdatingMatch(true);
+    // Add this match to the updating set
+    setUpdatingMatches((prev) => new Set([...prev, bankIndex]));
+
     try {
       // 1. Update session data in frontend
       const updatedSession = {
@@ -473,26 +654,12 @@ export default function AgentReconciliationPage() {
       const result = await response.json();
       console.log("✅ Session saved successfully:", result);
 
-      // 3. If match was approved, trigger document matching
-      if (status === "approved") {
-        try {
-          await fetchMatchingDocuments(bankIndex);
-          setAgentMessage(
-            `Successfully approved match for Bank #${bankIndex} and found matching documents`,
-          );
-        } catch (docError) {
-          console.warn("Document matching failed after approval:", docError);
-          setAgentMessage(
-            `Successfully ${status} match for Bank #${bankIndex}, but document matching failed`,
-          );
-        }
-      } else {
-        setAgentMessage(`Successfully ${status} match for Bank #${bankIndex}`);
-      }
-
-      // Close the modal
+      // 3. Close the modal immediately
       setShowMatchModal(false);
       setSelectedMatch(null);
+
+      // 4. Show immediate success message
+      setAgentMessage(`Successfully ${status} match for Bank #${bankIndex}`);
     } catch (error) {
       console.error("❌ Match status update error:", error);
       setAgentMessage(
@@ -504,13 +671,68 @@ export default function AgentReconciliationPage() {
         setCurrentSession(currentSession);
       }
     } finally {
-      setIsUpdatingMatch(false);
+      // Remove this match from the updating set
+      setUpdatingMatches((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(bankIndex);
+        return newSet;
+      });
+    }
+
+    // 5. If match was approved, start document search in background (completely non-blocking)
+    if (status === "approved") {
+      // Start document search immediately in background (completely non-blocking)
+      startDocumentSearch(bankIndex);
+    }
+  };
+
+  // Function to start document search in background (completely non-blocking)
+  const startDocumentSearch = async (bankIndex: number) => {
+    // Mark this match as searching for documents
+    setSearchingDocumentsFor((prev) => new Set([...prev, bankIndex]));
+
+    // Update message to indicate document search is starting
+    setAgentMessage(
+      `Match approved for Bank #${bankIndex}. Finding documents...`,
+    );
+
+    try {
+      // Start document search in background (completely non-blocking)
+      const documents = await fetchMatchingDocuments(bankIndex);
+
+      // Update message with results
+      if (documents && documents.length > 0) {
+        setAgentMessage(
+          `Successfully approved match for Bank #${bankIndex} and found ${documents.length} matching documents`,
+        );
+        // Mark this match as having documents
+        setMatchesWithDocuments((prev) => new Set([...prev, bankIndex]));
+      } else {
+        setAgentMessage(
+          `Match approved for Bank #${bankIndex}, but no documents found`,
+        );
+      }
+    } catch (docError) {
+      console.warn("Document matching failed after approval:", docError);
+      setAgentMessage(
+        `Match approved for Bank #${bankIndex}, but document search failed`,
+      );
+    } finally {
+      // Remove from searching state
+      setSearchingDocumentsFor((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(bankIndex);
+        return newSet;
+      });
     }
   };
 
   // Function to fetch matching documents
-  const fetchMatchingDocuments = async (bankIndex: number) => {
-    if (!sessionId) return;
+  const fetchMatchingDocuments = async (
+    bankIndex: number,
+    showModal = false,
+  ): Promise<Document[]> => {
+    if (!sessionId) return [];
 
     setIsLoadingDocuments(true);
     try {
@@ -523,20 +745,107 @@ export default function AgentReconciliationPage() {
       }
 
       const data = await response.json();
-      setMatchingDocuments(data.matching_documents || []);
-      setShowDocuments(true);
+      const documents = data.matching_documents || [];
+      setMatchingDocuments(documents);
+
+      // Store documents by match
+      setDocumentsByMatch((prev) => new Map(prev.set(bankIndex, documents)));
+
+      // Track which matches have documents
+      if (documents.length > 0) {
+        setMatchesWithDocuments((prev) => new Set([...prev, bankIndex]));
+      }
+
+      // Only show modal if explicitly requested
+      if (showModal) {
+        setShowDocuments(true);
+      }
+
+      return documents;
     } catch (error) {
       console.error("Error fetching matching documents:", error);
       setAgentMessage(
         `Error fetching documents: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
+      return [];
     } finally {
       setIsLoadingDocuments(false);
     }
   };
 
+  // Function to get documents for a specific match (for preview)
+  const getDocumentsForMatch = async (bankIndex: number) => {
+    if (!sessionId) return [];
+
+    try {
+      const response = await fetch(
+        `/api/reconcile/session/${sessionId}/match/${bankIndex}/documents`,
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.matching_documents || [];
+    } catch (error) {
+      console.error("Error fetching documents for match:", error);
+      return [];
+    }
+  };
+
+  // Function to view documents for a specific match
+  const viewDocumentsForMatch = async (bankIndex: number) => {
+    await fetchMatchingDocuments(bankIndex, true);
+  };
+
+  // Function to open document in side panel
+  const openDocumentInSidePanel = (document: Document) => {
+    setSelectedDocument(document);
+    setShowDocumentSidePanel(true);
+    setRejectionComment("");
+  };
+
+  // Function to close document side panel
+  const closeDocumentSidePanel = () => {
+    setShowDocumentSidePanel(false);
+    setSelectedDocument(null);
+    setRejectionComment("");
+  };
+
+  // Function to reject document and trigger re-search
+  const rejectDocument = () => {
+    if (
+      !selectedDocument ||
+      !rejectionComment.trim() ||
+      !sessionId ||
+      !selectedMatch
+    )
+      return;
+
+    // Add to rejection queue
+    const rejectionId = `rejection-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const newRejectionItem = {
+      id: rejectionId,
+      document: selectedDocument,
+      bankIndex: selectedMatch.bankIndex,
+      comment: rejectionComment,
+      status: "pending" as const,
+    };
+
+    setRejectionQueue((prev) => [...prev, newRejectionItem]);
+
+    // Close the side panel immediately
+    closeDocumentSidePanel();
+
+    // Show immediate feedback
+    setAgentMessage(
+      `Document rejection queued: "${rejectionComment}". Processing...`,
+    );
+  };
+
   // Function to download document
-  const downloadDocument = async (doc: any) => {
+  const downloadDocument = async (doc: Document) => {
     try {
       // Extract the filename from the file path
       const filename =
@@ -555,7 +864,7 @@ export default function AgentReconciliationPage() {
 
       // Create a download endpoint that serves the PDF from the Python API
       const response = await fetch(
-        `/api/download-document?path=${encodeURIComponent(pdfPath)}`,
+        `/api/download-document?path=${encodeURIComponent(pdfPath || "")}`,
       );
 
       if (!response.ok) {
@@ -1045,6 +1354,99 @@ export default function AgentReconciliationPage() {
         </div>
       </div>
 
+      {/* Rejection Queue Animation */}
+      {rejectionQueue.length > 0 && (
+        <div className="bg-neutral-900 border-b border-neutral-800 px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+                <span className="text-white text-sm font-medium">
+                  Processing Document Rejections
+                </span>
+              </div>
+              <div className="text-neutral-400 text-xs">
+                {
+                  rejectionQueue.filter((item) => item.status === "processing")
+                    .length
+                }{" "}
+                processing,{" "}
+                {
+                  rejectionQueue.filter((item) => item.status === "pending")
+                    .length
+                }{" "}
+                queued
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              {rejectionQueue.map((item, index) => (
+                <div
+                  key={item.id}
+                  className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                    item.status === "pending"
+                      ? "bg-yellow-400 animate-pulse"
+                      : item.status === "processing"
+                        ? "bg-blue-400 animate-spin"
+                        : item.status === "completed"
+                          ? "bg-green-400"
+                          : "bg-red-400"
+                  }`}
+                  style={{
+                    animationDelay: `${index * 100}ms`,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Queue Items */}
+          <div className="mt-3 space-y-2 max-h-32 overflow-y-auto">
+            {rejectionQueue.map((item) => (
+              <div
+                key={item.id}
+                className={`flex items-center justify-between p-2 rounded-lg transition-all duration-500 ${
+                  item.status === "pending"
+                    ? "bg-yellow-900/20 border border-yellow-500/30"
+                    : item.status === "processing"
+                      ? "bg-blue-900/20 border border-blue-500/30"
+                      : item.status === "completed"
+                        ? "bg-green-900/20 border border-green-500/30"
+                        : "bg-red-900/20 border border-red-500/30"
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <div
+                    className={`w-2 h-2 rounded-full ${
+                      item.status === "pending"
+                        ? "bg-yellow-400 animate-pulse"
+                        : item.status === "processing"
+                          ? "bg-blue-400 animate-spin"
+                          : item.status === "completed"
+                            ? "bg-green-400"
+                            : "bg-red-400"
+                    }`}
+                  />
+                  <div>
+                    <div className="text-white text-sm font-medium">
+                      {item.document.filename || "Document"}
+                    </div>
+                    <div className="text-neutral-400 text-xs">
+                      Bank #{item.bankIndex} • {item.comment}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs text-neutral-400">
+                  {item.status === "pending" && "Queued"}
+                  {item.status === "processing" && "Processing..."}
+                  {item.status === "completed" && "Completed"}
+                  {item.status === "error" && "Error"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* File Upload Section */}
       {showFileUpload && (
         <div className="p-6 border-b border-neutral-900">
@@ -1276,8 +1678,32 @@ export default function AgentReconciliationPage() {
             </div>
             <div className="p-2 bg-blue-500/20 rounded-lg mt-2">
               <div className="flex items-center space-x-2">
-                <div className="w-5 h-5 bg-blue-400 rounded-full flex items-center justify-center">
-                  <span className="text-white text-xs font-bold">i</span>
+                <div
+                  className={`w-5 h-5 rounded-full flex items-center justify-center ${
+                    agentMessage.includes("Finding documents") ||
+                    agentMessage.includes("Searching")
+                      ? "bg-blue-500 animate-pulse"
+                      : agentMessage.includes("Error") ||
+                          agentMessage.includes("failed")
+                        ? "bg-red-500"
+                        : agentMessage.includes("Successfully") ||
+                            agentMessage.includes("approved")
+                          ? "bg-green-500"
+                          : "bg-blue-400"
+                  }`}
+                >
+                  {agentMessage.includes("Finding documents") ||
+                  agentMessage.includes("Searching") ? (
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />
+                  ) : agentMessage.includes("Error") ||
+                    agentMessage.includes("failed") ? (
+                    <span className="text-white text-xs font-bold">!</span>
+                  ) : agentMessage.includes("Successfully") ||
+                    agentMessage.includes("approved") ? (
+                    <span className="text-white text-xs font-bold">✓</span>
+                  ) : (
+                    <span className="text-white text-xs font-bold">i</span>
+                  )}
                 </div>
                 <p className="text-neutral-300 text-sm flex-1">
                   {manualMatchMode ? (
@@ -1294,6 +1720,13 @@ export default function AgentReconciliationPage() {
                     agentMessage
                   )}
                 </p>
+                {/* Document search progress indicator */}
+                {searchingDocumentsFor.size > 0 && (
+                  <div className="flex items-center space-x-1 text-xs text-blue-400">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-400" />
+                    <span>{searchingDocumentsFor.size} searching</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1359,7 +1792,7 @@ export default function AgentReconciliationPage() {
               {/* Table Body */}
               <tbody className="bg-black">
                 {(() => {
-                  const rows = [];
+                  const rows: React.ReactNode[] = [];
                   const rowIndex = 0;
 
                   createGroupedData().forEach((group, groupIndex) => {
@@ -1429,19 +1862,29 @@ export default function AgentReconciliationPage() {
                                 : ""}
                             </td>
                             <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate">
-                              {bankEntry?.bankEntry?.Date || ""}
+                              {bankEntry?.bankEntry?.Date
+                                ? String(bankEntry.bankEntry.Date)
+                                : null}
                             </td>
                             <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate max-w-32">
-                              {bankEntry?.bankEntry?.Description || ""}
+                              {bankEntry?.bankEntry?.Description
+                                ? String(bankEntry.bankEntry.Description)
+                                : null}
                             </td>
                             <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
-                              {bankEntry?.bankEntry?.Amount || ""}
+                              {bankEntry?.bankEntry?.Amount
+                                ? String(bankEntry.bankEntry.Amount)
+                                : null}
                             </td>
                             <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
-                              {bankEntry?.bankEntry?.Type || ""}
+                              {bankEntry?.bankEntry?.Type
+                                ? String(bankEntry.bankEntry.Type)
+                                : null}
                             </td>
                             <td className="py-2 px-3 text-center text-xs text-white border-r-4 border-r-neutral-700">
-                              {bankEntry?.bankEntry?.Balance || ""}
+                              {bankEntry?.bankEntry?.Balance
+                                ? String(bankEntry.bankEntry.Balance)
+                                : null}
                             </td>
 
                             {/* GL Entry Cells */}
@@ -1468,18 +1911,26 @@ export default function AgentReconciliationPage() {
                                 : ""}
                             </td>
                             <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate">
-                              {glEntry?.data["Date (MM/DD/YYYY)"] ||
-                                glEntry?.data.Date ||
-                                ""}
+                              {glEntry?.data["Date (MM/DD/YYYY)"]
+                                ? String(glEntry.data["Date (MM/DD/YYYY)"])
+                                : glEntry?.data.Date
+                                  ? String(glEntry.data.Date)
+                                  : null}
                             </td>
                             <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate max-w-24">
-                              {glEntry?.data.Account || ""}
+                              {glEntry?.data.Account
+                                ? String(glEntry.data.Account)
+                                : null}
                             </td>
                             <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
-                              {glEntry?.data.Debit || ""}
+                              {glEntry?.data.Debit
+                                ? String(glEntry.data.Debit)
+                                : null}
                             </td>
                             <td className="py-2 px-3 text-center text-xs text-white">
-                              {glEntry?.data.Credit || ""}
+                              {glEntry?.data.Credit
+                                ? String(glEntry.data.Credit)
+                                : null}
                             </td>
                           </tr>,
                         );
@@ -1508,7 +1959,11 @@ export default function AgentReconciliationPage() {
                     const getStatusIcon = () => {
                       switch (group.groupStyle) {
                         case "approved":
-                          return "✓";
+                          // Check if this approved match has documents
+                          if (matchesWithDocuments.has(group.bankIndex)) {
+                            return "✓"; // Approved with documents
+                          }
+                          return "✓"; // Approved without documents - we'll add a separate indicator
                         case "high-confidence":
                           return "?";
                         case "low-confidence":
@@ -1532,13 +1987,19 @@ export default function AgentReconciliationPage() {
                       rows.push(
                         <tr
                           key={`group-${groupIndex}-${rowIdx}`}
-                          className={`border-b border-neutral-900 cursor-pointer ${getGroupHoverClass(groupId)} ${
+                          className={`border-b border-neutral-900 ${group.bankMatch && !updatingMatches.has(group.bankMatch.bankIndex) ? "cursor-pointer" : "cursor-not-allowed"} ${getGroupHoverClass(groupId)} ${
                             isFirstRow
                               ? `${getRowClass()} border-t-2 border-t-neutral-800`
                               : ""
+                          } ${group.bankMatch && updatingMatches.has(group.bankMatch.bankIndex) ? "opacity-50" : ""} ${
+                            group.groupStyle === "approved" && 
+                            !matchesWithDocuments.has(group.bankIndex) && 
+                            !searchingDocumentsFor.has(group.bankIndex) ? "bg-amber-50/5 border-l-4 border-l-amber-400" : ""
                           }`}
                           onClick={() =>
-                            group.bankMatch && handleCellClick(group.bankMatch)
+                            group.bankMatch &&
+                            !updatingMatches.has(group.bankMatch.bankIndex) &&
+                            handleCellClick(group.bankMatch)
                           }
                           onMouseEnter={() => handleGroupMouseEnter(groupId)}
                           onMouseLeave={handleGroupMouseLeave}
@@ -1547,52 +2008,134 @@ export default function AgentReconciliationPage() {
                           <td
                             className={`py-2 px-3 text-center text-xs text-neutral-300 border-r border-neutral-900 ${!isFirstRow ? "border-l-4 border-l-neutral-600" : ""}`}
                           >
-                            {isFirstRow
-                              ? `${group.bankIndex} ${getStatusIcon()}`
-                              : ""}
+                            {isFirstRow && (
+                              <div className="flex items-center justify-center space-x-1">
+                                <span>
+                                  {group.bankIndex} 
+                                  {/* Status with descriptive text */}
+                                  {group.groupStyle === "approved" && (
+                                    <span className="text-green-400 text-xs ml-1" title="Approved by user">
+                                      ✓ approved
+                                    </span>
+                                  )}
+                                  {group.groupStyle === "high-confidence" && (
+                                    <span className="text-yellow-400 text-xs ml-1" title="High confidence match">
+                                      ? high conf
+                                    </span>
+                                  )}
+                                  {group.groupStyle === "low-confidence" && (
+                                    <span className="text-orange-400 text-xs ml-1" title="Low confidence match">
+                                      ? low conf
+                                    </span>
+                                  )}
+                                  {!group.groupStyle || (group.groupStyle !== "approved" && group.groupStyle !== "high-confidence" && group.groupStyle !== "low-confidence") && (
+                                    <span className="text-neutral-400 text-xs ml-1" title="Pending review">
+                                      ○ pending
+                                    </span>
+                                  )}
+                                </span>
+                                {/* Show searching indicator */}
+                                {searchingDocumentsFor.has(group.bankIndex) && (
+                                  <div className="flex items-center space-x-1 text-blue-400 text-xs">
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-400" />
+                                    <span>searching docs</span>
+                                  </div>
+                                )}
+                                {updatingMatches.has(group.bankIndex) && (
+                                  <div className="flex items-center space-x-1 text-blue-400 text-xs">
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-400" />
+                                    <span>updating</span>
+                                  </div>
+                                )}
+                                {matchesWithDocuments.has(group.bankIndex) && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      viewDocumentsForMatch(group.bankIndex);
+                                    }}
+                                    className="text-blue-400 hover:text-blue-300 text-xs flex items-center space-x-1"
+                                    title="View Documents"
+                                  >
+                                    <span>📄</span>
+                                    <span>found docs</span>
+                                  </button>
+                                )}
+                                {/* Show indicator for approved matches without documents */}
+                                {group.groupStyle === "approved" &&
+                                  !matchesWithDocuments.has(group.bankIndex) &&
+                                  !searchingDocumentsFor.has(
+                                    group.bankIndex,
+                                  ) && (
+                                    <span
+                                      className="text-amber-400 text-xs flex items-center space-x-1"
+                                      title="Approved but no supporting documents found"
+                                    >
+                                      <span>📄❌</span>
+                                      <span>no docs</span>
+                                    </span>
+                                  )}
+                              </div>
+                            )}
                           </td>
                           <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate">
-                            {isFirstRow ? group.bankEntry?.Date || "" : ""}
+                            {isFirstRow && group.bankEntry?.Date
+                              ? String(group.bankEntry.Date)
+                              : null}
                           </td>
                           <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate max-w-32">
-                            {isFirstRow
-                              ? group.bankEntry?.Description || ""
-                              : ""}
+                            {isFirstRow && group.bankEntry?.Description
+                              ? String(group.bankEntry.Description)
+                              : null}
                           </td>
                           <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
-                            {isFirstRow ? group.bankEntry?.Amount || "" : ""}
+                            {isFirstRow && group.bankEntry?.Amount
+                              ? String(group.bankEntry.Amount)
+                              : null}
                           </td>
                           <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
-                            {isFirstRow ? group.bankEntry?.Type || "" : ""}
+                            {isFirstRow && group.bankEntry?.Type
+                              ? String(group.bankEntry.Type)
+                              : null}
                           </td>
                           <td className="py-2 px-3 text-center text-xs text-white border-r-4 border-r-neutral-700">
-                            {isFirstRow ? group.bankEntry?.Balance || "" : ""}
+                            {isFirstRow && group.bankEntry?.Balance
+                              ? String(group.bankEntry.Balance)
+                              : null}
                           </td>
 
                           {/* GL Entry Cells */}
                           <td className="py-2 px-3 text-center text-xs text-neutral-300 border-r border-neutral-900">
-                            {glEntry ? glEntry.glIndex : ""}
+                            {glEntry ? glEntry.glIndex : null}
                           </td>
                           <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate">
                             {glEntry
-                              ? glEntry.data["Date (MM/DD/YYYY)"] ||
-                                glEntry.data.Date ||
-                                ""
-                              : ""}
+                              ? glEntry.data["Date (MM/DD/YYYY)"]
+                                ? String(glEntry.data["Date (MM/DD/YYYY)"])
+                                : glEntry.data.Date
+                                  ? String(glEntry.data.Date)
+                                  : null
+                              : null}
                           </td>
                           <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate max-w-24">
                             {glEntry
-                              ? glEntry.data.Account || ""
+                              ? glEntry.data.Account
+                                ? String(glEntry.data.Account)
+                                : null
                               : glEntry === undefined &&
                                   group.glEntries?.length === 0
                                 ? "No match"
-                                : ""}
+                                : null}
                           </td>
                           <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
-                            {glEntry ? glEntry.data.Debit || "" : ""}
+                            {glEntry?.data.Debit
+                              ? String(glEntry.data.Debit)
+                              : null}
                           </td>
                           <td className="py-2 px-3 text-center text-xs text-white">
-                            {glEntry ? glEntry.data.Credit || "" : ""}
+                            {glEntry?.data.Credit
+                              ? String(glEntry.data.Credit)
+                              : null}
                           </td>
                         </tr>,
                       );
@@ -1609,14 +2152,20 @@ export default function AgentReconciliationPage() {
 
       {/* Match Details Modal */}
       {showMatchModal && selectedMatch && currentSession && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-neutral-950 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
-            {/* Loading Overlay */}
-            {isUpdatingMatch && (
-              <div className="absolute inset-0 bg-neutral-950/80 rounded-lg flex items-center justify-center z-10">
-                <div className="flex flex-col items-center space-y-3">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
-                  <p className="text-neutral-300 text-sm">Updating match...</p>
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={() => setShowMatchModal(false)}
+        >
+          <div
+            className="bg-neutral-950 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Subtle Loading Indicator */}
+            {selectedMatch && updatingMatches.has(selectedMatch.bankIndex) && (
+              <div className="absolute top-4 right-4 z-10">
+                <div className="flex items-center space-x-2 bg-neutral-800/90 backdrop-blur-sm px-3 py-2 rounded-lg border border-neutral-700">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400" />
+                  <p className="text-neutral-300 text-xs">Updating...</p>
                 </div>
               </div>
             )}
@@ -1624,125 +2173,214 @@ export default function AgentReconciliationPage() {
               <h3 className="text-xl font-semibold text-white">Match Review</h3>
               <button
                 type="button"
-                onClick={() => setShowMatchModal(false)}
-                className="text-neutral-400 hover:text-white"
+                onClick={() => {
+                  setShowMatchModal(false);
+                  setSelectedMatch(null);
+                }}
+                className="text-neutral-400 hover:text-white p-2 rounded-lg hover:bg-neutral-800 transition-colors"
+                title="Close modal"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-6">
-              {/* Match Information */}
+            <div className="space-y-4">
+              {/* AI Reasoning - Priority Section */}
               <div>
-                <h4 className="text-neutral-300 font-medium mb-2">
+                <h4 className="text-white font-semibold mb-3 text-lg">
+                  AI Reasoning
+                </h4>
+                <div className="bg-blue-900/20 border border-blue-500/30 p-4 rounded-lg">
+                  <p className="text-blue-100 leading-relaxed">
+                    {selectedMatch.reasoning}
+                  </p>
+                </div>
+              </div>
+
+              {/* Document Preview Section */}
+              <div>
+                <h4 className="text-neutral-300 font-medium mb-2 text-sm">
+                  Supporting Documents
+                </h4>
+                <div className="bg-neutral-900 p-3 rounded">
+                  {searchingDocumentsFor.has(selectedMatch.bankIndex) ? (
+                    // Loading state when searching for documents
+                    <div className="flex items-center space-x-3">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400" />
+                      <span className="text-blue-400 text-sm">
+                        Searching for documents...
+                      </span>
+                    </div>
+                  ) : matchesWithDocuments.has(selectedMatch.bankIndex) ? (
+                    // Show document preview when documents are available
+                    <div className="space-y-2">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-green-400 text-sm">📄</span>
+                        <span className="text-green-400 text-sm font-medium">
+                          {
+                            (
+                              documentsByMatch.get(selectedMatch.bankIndex) ||
+                              []
+                            ).length
+                          }{" "}
+                          document(s) found
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        {(documentsByMatch.get(selectedMatch.bankIndex) || [])
+                          .slice(0, 2)
+                          .map((doc, index) => (
+                            <div
+                              key={index}
+                              className="flex items-center justify-between bg-neutral-800 p-2 rounded text-xs cursor-pointer hover:bg-neutral-700 transition-colors"
+                              onClick={() => openDocumentInSidePanel(doc)}
+                            >
+                              <div className="flex items-center space-x-2">
+                                <span className="text-neutral-400">📄</span>
+                                <span className="text-white truncate">
+                                  {doc.filename || "Document"}
+                                </span>
+                              </div>
+                              {doc.confidence && (
+                                <span className="text-green-400 text-xs">
+                                  {Math.round(doc.confidence * 100)}%
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        {(documentsByMatch.get(selectedMatch.bankIndex) || [])
+                          .length > 2 && (
+                          <div className="text-neutral-400 text-xs text-center">
+                            +
+                            {(
+                              documentsByMatch.get(selectedMatch.bankIndex) ||
+                              []
+                            ).length - 2}{" "}
+                            more documents
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          viewDocumentsForMatch(selectedMatch.bankIndex)
+                        }
+                        className="text-blue-400 hover:text-blue-300 text-xs underline"
+                      >
+                        View all documents
+                      </button>
+                    </div>
+                  ) : selectedMatch.status === "approved" ? (
+                    // No documents found state
+                    <div className="flex items-center space-x-2">
+                      <span className="text-neutral-400 text-sm">📄</span>
+                      <span className="text-neutral-400 text-sm">
+                        No supporting documents found
+                      </span>
+                    </div>
+                  ) : (
+                    // Pending state - documents will be searched after approval
+                    <div className="flex items-center space-x-2">
+                      <span className="text-neutral-400 text-sm">📄</span>
+                      <span className="text-neutral-400 text-sm">
+                        Documents will be searched after approval
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Match Information - Compact */}
+              <div>
+                <h4 className="text-neutral-300 font-medium mb-2 text-sm">
                   Match Information
                 </h4>
-                <div className="bg-neutral-900 p-4 rounded">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-white font-medium">
-                        Bank Entry #{selectedMatch.bankIndex}
-                      </p>
-                      <p className="text-neutral-400 text-sm">
+                <div className="bg-neutral-900 p-3 rounded">
+                  <div className="flex justify-between items-center text-sm">
+                    <div className="flex items-center space-x-4">
+                      <span className="text-white">
+                        Bank #{selectedMatch.bankIndex}
+                      </span>
+                      <span className="text-neutral-400">→</span>
+                      <span className="text-white">
+                        GL [{selectedMatch.glIndexes.join(", ")}]
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-4 text-xs">
+                      <span className="text-neutral-400">
                         Confidence:{" "}
                         {(selectedMatch.confidence * 100).toFixed(1)}%
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-white font-medium">
-                        GL Entries [#{selectedMatch.glIndexes.join(", ")}]
-                      </p>
-                      <p className="text-neutral-400 text-sm">
+                      </span>
+                      <span className="text-neutral-400">
                         Status: {selectedMatch.status}
-                      </p>
+                      </span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Bank Statement Entry */}
+              {/* Bank Statement Entry - Compact */}
               <div>
-                <h4 className="text-neutral-300 font-medium mb-2">
+                <h4 className="text-neutral-300 font-medium mb-2 text-sm">
                   Bank Statement Entry
                 </h4>
-                <div className="bg-neutral-900 p-4 rounded">
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="bg-neutral-900 p-3 rounded">
+                  <div className="grid grid-cols-4 gap-3 text-sm">
                     {currentSession.bank_data[selectedMatch.bankIndex] &&
                       Object.entries(
                         currentSession.bank_data[selectedMatch.bankIndex],
                       ).map(([key, value]) => (
-                        <div key={key}>
-                          <span className="text-neutral-400 text-sm">
-                            {key.replace(/_/g, " ").toUpperCase()}:
+                        <div key={key} className="text-center">
+                          <span className="text-neutral-400 text-xs block">
+                            {key.replace(/_/g, " ").toUpperCase()}
                           </span>
-                          <p className="text-white font-medium">
+                          <p className="text-white font-medium text-sm">
                             {String(value)}
                           </p>
                         </div>
                       ))}
                   </div>
-                  <p className="text-neutral-400">
-                    Transaction Lifecycle: {selectedMatch.glIndexes.length} GL
-                    entries
-                  </p>
                 </div>
               </div>
 
-              {/* General Ledger Entry */}
+              {/* General Ledger Entries - Compact */}
               {selectedMatch.glIndexes !== null &&
                 selectedMatch.glIndexes.length > 0 && (
                   <div>
-                    <h4 className="text-neutral-300 font-medium mb-2">
-                      General Ledger Entries
+                    <h4 className="text-neutral-300 font-medium mb-2 text-sm">
+                      General Ledger Entries ({selectedMatch.glIndexes.length})
                     </h4>
-                    {selectedMatch.glIndexes.map((glIndex) => (
-                      <div className="bg-neutral-900 p-4 rounded" key={glIndex}>
-                        <span className="text-neutral-400 text-sm">
-                          GL Entry #{glIndex}:
-                        </span>
-                        <div className="grid grid-cols-2 gap-4">
-                          {currentSession.gl_data[glIndex] &&
-                            Object.entries(currentSession.gl_data[glIndex]).map(
-                              ([key, value]) => (
-                                <div key={key}>
-                                  <span className="text-neutral-400 text-sm">
-                                    {key.replace(/_/g, " ").toUpperCase()}:
+                    <div className="space-y-2">
+                      {selectedMatch.glIndexes.map((glIndex) => (
+                        <div
+                          className="bg-neutral-900 p-3 rounded"
+                          key={glIndex}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-neutral-400 text-xs">
+                              GL Entry #{glIndex}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-4 gap-3 text-sm">
+                            {currentSession.gl_data[glIndex] &&
+                              Object.entries(
+                                currentSession.gl_data[glIndex],
+                              ).map(([key, value]) => (
+                                <div key={key} className="text-center">
+                                  <span className="text-neutral-400 text-xs block">
+                                    {key.replace(/_/g, " ").toUpperCase()}
                                   </span>
-                                  <p className="text-white font-medium">
+                                  <p className="text-white font-medium text-sm">
                                     {String(value)}
                                   </p>
                                 </div>
-                              ),
-                            )}
+                              ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
-
-              {/* AI Reasoning */}
-              <div>
-                <h4 className="text-neutral-300 font-medium mb-2">
-                  AI Reasoning
-                </h4>
-                <div className="bg-neutral-900 p-4 rounded">
-                  <p className="text-neutral-300">{selectedMatch.reasoning}</p>
-                </div>
-              </div>
-
-              {/* Show Documents Button */}
-              <div className="flex space-x-4 pt-4">
-                <button
-                  type="button"
-                  onClick={() =>
-                    fetchMatchingDocuments(selectedMatch.bankIndex)
-                  }
-                  disabled={isLoadingDocuments}
-                  className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:bg-neutral-900 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isLoadingDocuments ? "Loading..." : "📄 Show Docs"}
-                </button>
-              </div>
 
               {/* Action Buttons - Only show if there's a match to approve/reject */}
               {selectedMatch.status === "pending" &&
@@ -1753,20 +2391,59 @@ export default function AgentReconciliationPage() {
                       onClick={() =>
                         updateMatchStatus(selectedMatch.bankIndex, "approved")
                       }
-                      disabled={isUpdatingMatch}
-                      className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-neutral-900 disabled:cursor-not-allowed transition-colors"
+                      disabled={
+                        selectedMatch &&
+                        updatingMatches.has(selectedMatch.bankIndex)
+                      }
+                      className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-neutral-700 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center space-x-2"
                     >
-                      {isUpdatingMatch ? "Processing..." : "✓ Approve Match"}
+                      {selectedMatch &&
+                      updatingMatches.has(selectedMatch.bankIndex) ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                          <span>Processing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>✓</span>
+                          <span>Approve Match</span>
+                        </>
+                      )}
                     </button>
                     <button
                       type="button"
                       onClick={() =>
                         updateMatchStatus(selectedMatch.bankIndex, "rejected")
                       }
-                      disabled={isUpdatingMatch}
-                      className="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-neutral-900 disabled:cursor-not-allowed transition-colors"
+                      disabled={
+                        selectedMatch &&
+                        updatingMatches.has(selectedMatch.bankIndex)
+                      }
+                      className="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-neutral-700 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center space-x-2"
                     >
-                      {isUpdatingMatch ? "Processing..." : "✗ Reject Match"}
+                      {selectedMatch &&
+                      updatingMatches.has(selectedMatch.bankIndex) ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                          <span>Processing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>✗</span>
+                          <span>Reject Match</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMatchModal(false);
+                        setSelectedMatch(null);
+                      }}
+                      className="px-4 py-3 bg-neutral-700 text-white rounded-lg font-medium hover:bg-neutral-600 transition-all duration-200"
+                      title="Close modal (Escape)"
+                    >
+                      Cancel
                     </button>
                   </div>
                 )}
@@ -2112,7 +2789,11 @@ export default function AgentReconciliationPage() {
                     transaction:
                   </p>
                   {matchingDocuments.map((doc, index) => (
-                    <div key={index} className="bg-neutral-900 rounded-lg p-4">
+                    <div
+                      key={index}
+                      className="bg-neutral-900 rounded-lg p-4 cursor-pointer hover:bg-neutral-800 transition-colors"
+                      onClick={() => openDocumentInSidePanel(doc)}
+                    >
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-white font-medium flex items-center">
                           📄 {doc.filename || "Unknown Document"}
@@ -2184,6 +2865,176 @@ export default function AgentReconciliationPage() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Side Panel */}
+      {showDocumentSidePanel && selectedDocument && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-end z-50">
+          <div className="bg-neutral-950 border-l border-neutral-800 w-full max-w-2xl h-full overflow-y-auto">
+            {/* Header */}
+            <div className="sticky top-0 bg-neutral-950 border-b border-neutral-800 p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white flex items-center">
+                  📄 {selectedDocument.filename || "Document"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={closeDocumentSidePanel}
+                  className="text-neutral-400 hover:text-white text-xl"
+                >
+                  ✕
+                </button>
+              </div>
+              {selectedDocument.confidence && (
+                <div className="mt-2">
+                  <span className="text-xs bg-green-600 px-2 py-1 rounded text-white">
+                    {Math.round(selectedDocument.confidence * 100)}% confident
+                    match
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Document Content */}
+            <div className="p-4 space-y-6">
+              {/* Document Preview */}
+              <div>
+                <h4 className="text-white font-medium mb-3">
+                  Document Preview
+                </h4>
+                <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
+                  <div className="text-center py-8">
+                    <div className="text-6xl mb-4">📄</div>
+                    <p className="text-neutral-300 mb-2">
+                      {selectedDocument.filename || "Document"}
+                    </p>
+                    <p className="text-neutral-400 text-sm">PDF Document</p>
+                    <button
+                      type="button"
+                      onClick={() => downloadDocument(selectedDocument)}
+                      className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                    >
+                      ⬇️ Download Document
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Document Details */}
+              {selectedDocument.extraction && (
+                <div>
+                  <h4 className="text-white font-medium mb-3">
+                    Extracted Information
+                  </h4>
+                  <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
+                    <div className="grid grid-cols-1 gap-3">
+                      {Object.entries(selectedDocument.extraction).map(
+                        ([key, value]) => (
+                          <div
+                            key={key}
+                            className="flex justify-between items-start"
+                          >
+                            <span className="text-neutral-400 text-sm font-medium">
+                              {key.replace(/_/g, " ").toUpperCase()}:
+                            </span>
+                            <span className="text-white text-sm text-right max-w-xs break-words">
+                              {String(value)}
+                            </span>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Processing Notes */}
+              {selectedDocument.processing_notes && (
+                <div>
+                  <h4 className="text-white font-medium mb-3">
+                    Processing Notes
+                  </h4>
+                  <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
+                    <p className="text-neutral-300 text-sm">
+                      {selectedDocument.processing_notes}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Rejection Section */}
+              <div>
+                <h4 className="text-white font-medium mb-3">
+                  Document Actions
+                </h4>
+                <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
+                  {/* Queue Status */}
+                  {rejectionQueue.length > 0 && (
+                    <div className="mb-4 p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+                        <span className="text-blue-400 text-sm font-medium">
+                          {
+                            rejectionQueue.filter(
+                              (item) => item.status === "processing",
+                            ).length
+                          }{" "}
+                          processing,{" "}
+                          {
+                            rejectionQueue.filter(
+                              (item) => item.status === "pending",
+                            ).length
+                          }{" "}
+                          queued
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-4">
+                    <div>
+                      <label
+                        htmlFor="rejection-comment"
+                        className="block text-sm font-medium text-white mb-2"
+                      >
+                        Reject Document (with reason)
+                      </label>
+                      <textarea
+                        id="rejection-comment"
+                        value={rejectionComment}
+                        onChange={(e) => setRejectionComment(e.target.value)}
+                        placeholder="Explain why this document doesn't match the transaction (e.g., wrong vendor, different amount, incorrect date, etc.)"
+                        className="w-full h-24 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder-neutral-400 focus:outline-none focus:border-red-400 resize-none"
+                      />
+                    </div>
+                    <div className="flex space-x-3">
+                      <button
+                        type="button"
+                        onClick={rejectDocument}
+                        disabled={!rejectionComment.trim() || isProcessingQueue}
+                        className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 disabled:bg-neutral-700 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {isProcessingQueue
+                          ? "Processing Queue..."
+                          : "✗ Reject & Re-search"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={closeDocumentSidePanel}
+                        className="px-4 py-2 bg-neutral-700 text-white rounded-lg font-medium hover:bg-neutral-600 transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <p className="text-neutral-400 text-xs">
+                      Rejecting this document will trigger a new search for
+                      better matching documents.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
