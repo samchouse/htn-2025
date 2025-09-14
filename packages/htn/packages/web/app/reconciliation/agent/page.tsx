@@ -1280,7 +1280,19 @@ export default function AgentReconciliationPage() {
                   <span className="text-white text-xs font-bold">i</span>
                 </div>
                 <p className="text-neutral-300 text-sm flex-1">
-                  {agentMessage}
+                  {manualMatchMode ? (
+                    selectedBankEntry !== null ? (
+                      selectedGlEntries.length > 0 ? (
+                        `Manual Match Mode: Bank #${selectedBankEntry} → GL [${selectedGlEntries.join(", ")}] selected. Click "Confirm Match" to proceed.`
+                      ) : (
+                        `Manual Match Mode: Bank #${selectedBankEntry} selected. Now select one or more GL entries to match.`
+                      )
+                    ) : (
+                      "Manual Match Mode: Click on a bank entry number to start creating a match."
+                    )
+                  ) : (
+                    agentMessage
+                  )}
                 </p>
               </div>
             </div>
@@ -1397,17 +1409,20 @@ export default function AgentReconciliationPage() {
                           >
                             {/* Bank Entry Cells */}
                             <td
-                              className={`py-2 px-3 text-center text-xs border-r border-neutral-900 cursor-pointer ${
+                              className={`py-2 px-3 text-center text-xs border-r border-neutral-900 ${
                                 manualMatchMode && bankEntry
                                   ? selectedBankEntry === bankEntry.bankIndex
-                                    ? "text-blue-400 font-bold"
-                                    : "text-neutral-300 hover:text-white"
+                                    ? "text-blue-400 font-bold cursor-pointer bg-blue-900/20"
+                                    : "text-neutral-300 hover:text-white cursor-pointer hover:bg-neutral-800/50"
                                   : "text-neutral-300"
                               }`}
-                              onClick={() =>
-                                bankEntry &&
-                                selectBankEntry(bankEntry.bankIndex)
-                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (manualMatchMode && bankEntry) {
+                                  console.log("🔍 Bank entry clicked:", bankEntry.bankIndex);
+                                  selectBankEntry(bankEntry.bankIndex);
+                                }
+                              }}
                             >
                               {bankEntry
                                 ? `${bankEntry.bankIndex}${manualMatchMode && selectedBankEntry === bankEntry.bankIndex ? " ✓" : ""}`
@@ -1431,18 +1446,22 @@ export default function AgentReconciliationPage() {
 
                             {/* GL Entry Cells */}
                             <td
-                              className={`py-2 px-3 text-center text-xs border-r border-neutral-900 cursor-pointer ${
+                              className={`py-2 px-3 text-center text-xs border-r border-neutral-900 ${
                                 manualMatchMode &&
                                 glEntry &&
                                 selectedBankEntry !== null
                                   ? selectedGlEntries.includes(glEntry.glIndex)
-                                    ? "text-blue-400 font-bold"
-                                    : "text-neutral-300 hover:text-white"
+                                    ? "text-blue-400 font-bold cursor-pointer bg-blue-900/20"
+                                    : "text-neutral-300 hover:text-white cursor-pointer hover:bg-neutral-800/50"
                                   : "text-neutral-300"
                               }`}
-                              onClick={() =>
-                                glEntry && selectGlEntry(glEntry.glIndex)
-                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (manualMatchMode && glEntry) {
+                                  console.log("🔍 GL entry clicked:", glEntry.glIndex);
+                                  selectGlEntry(glEntry.glIndex);
+                                }
+                              }}
                             >
                               {glEntry
                                 ? `${glEntry.glIndex}${manualMatchMode && selectedGlEntries.includes(glEntry.glIndex) ? " ✓" : ""}`
