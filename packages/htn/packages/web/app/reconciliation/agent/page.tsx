@@ -79,6 +79,20 @@ export default function AgentReconciliationPage() {
   const [matchingDocuments, setMatchingDocuments] = useState<any[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
+  const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
+
+  // Helper functions for group hover effects
+  const handleGroupMouseEnter = (groupId: string) => {
+    setHoveredGroupId(groupId);
+  };
+
+  const handleGroupMouseLeave = () => {
+    setHoveredGroupId(null);
+  };
+
+  const getGroupHoverClass = (groupId: string) => {
+    return hoveredGroupId === groupId ? "bg-neutral-800/50" : "";
+  };
 
   // Helper function to save session to backend
   const saveSessionToBackend = async (
@@ -784,7 +798,7 @@ export default function AgentReconciliationPage() {
       case "completed":
         return "text-green-400";
       default:
-        return "text-slate-400";
+        return "text-neutral-400";
     }
   };
 
@@ -990,9 +1004,9 @@ export default function AgentReconciliationPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black flex flex-col">
+    <div className="min-h-screen bg-neutral-950 flex flex-col">
       {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-600 px-6 py-4">
+      <div className="bg-neutral-900 border-b border-neutral-900 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-white">
@@ -1010,10 +1024,10 @@ export default function AgentReconciliationPage() {
                     {currentSession.agent_state.replace("_", " ")}
                   </span>
                 </span>
-                <span className="text-slate-400 text-sm">
+                <span className="text-neutral-400 text-sm">
                   Iteration: {currentSession.iteration_count}
                 </span>
-                <span className="text-slate-400 text-sm">
+                <span className="text-neutral-400 text-sm">
                   Matches:{" "}
                   {
                     currentSession.matches.filter(
@@ -1026,14 +1040,14 @@ export default function AgentReconciliationPage() {
             )}
           </div>
           {sessionId && (
-            <div className="text-slate-400 text-sm">Session: {sessionId}</div>
+            <div className="text-neutral-400 text-sm">Session: {sessionId}</div>
           )}
         </div>
       </div>
 
       {/* File Upload Section */}
       {showFileUpload && (
-        <div className="p-6 border-b border-slate-600">
+        <div className="p-6 border-b border-neutral-900">
           <div className="max-w-4xl mx-auto">
             <h2 className="text-xl font-semibold text-white mb-6 text-center">
               Upload Your Files
@@ -1054,7 +1068,7 @@ export default function AgentReconciliationPage() {
                         e.stopPropagation();
                         clearFile("bank");
                       }}
-                      className="text-slate-400 hover:text-white text-sm"
+                      className="text-neutral-400 hover:text-white text-sm"
                     >
                       ✕ Clear
                     </button>
@@ -1067,7 +1081,7 @@ export default function AgentReconciliationPage() {
                       ? "border-blue-400 bg-blue-900/20"
                       : uploadedFiles.bank
                         ? "border-green-500 bg-green-900/20"
-                        : "border-slate-500 hover:border-slate-400"
+                        : "border-neutral-900 hover:border-neutral-700"
                   }`}
                 >
                   <input {...bankDropzone.getInputProps()} />
@@ -1081,7 +1095,7 @@ export default function AgentReconciliationPage() {
                             ? "Drop your bank statement CSV here"
                             : "Drag & drop bank statement CSV here, or click to select"}
                       </p>
-                      <p className="text-slate-400 text-sm mt-1">
+                      <p className="text-neutral-400 text-sm mt-1">
                         Bank transaction data
                       </p>
                     </div>
@@ -1103,7 +1117,7 @@ export default function AgentReconciliationPage() {
                         e.stopPropagation();
                         clearFile("gl");
                       }}
-                      className="text-slate-400 hover:text-white text-sm"
+                      className="text-neutral-400 hover:text-white text-sm"
                     >
                       ✕ Clear
                     </button>
@@ -1116,7 +1130,7 @@ export default function AgentReconciliationPage() {
                       ? "border-blue-400 bg-blue-900/20"
                       : uploadedFiles.gl
                         ? "border-green-500 bg-green-900/20"
-                        : "border-slate-500 hover:border-slate-400"
+                        : "border-neutral-900 hover:border-neutral-700"
                   }`}
                 >
                   <input {...glDropzone.getInputProps()} />
@@ -1130,7 +1144,7 @@ export default function AgentReconciliationPage() {
                             ? "Drop your GL CSV here"
                             : "Drag & drop general ledger CSV here, or click to select"}
                       </p>
-                      <p className="text-slate-400 text-sm mt-1">
+                      <p className="text-neutral-400 text-sm mt-1">
                         GL transaction data
                       </p>
                     </div>
@@ -1164,45 +1178,17 @@ export default function AgentReconciliationPage() {
         </div>
       )}
 
-      {/* Agent Status and Controls */}
-      {currentSession && (
-        <div className="bg-slate-800 border-b border-slate-600 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-slate-300 text-sm">{agentMessage}</p>
-            </div>
-            <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={() => setShowDocumentUpload(true)}
-                className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors"
-              >
-                📄 Upload Documents
-              </button>
-              <button
-                type="button"
-                onClick={continueProcessing}
-                disabled={isLoading}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
-              >
-                {isLoading ? "Processing..." : "Continue Processing"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Initial Loading State */}
       {isInitializing && (
         <div className="flex-1 flex items-center justify-center">
-          <div className="bg-slate-800 rounded-lg p-8 border border-slate-600">
+          <div className="bg-neutral-950 rounded-lg p-8 border border-neutral-900">
             <div className="flex flex-col items-center space-y-4">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400" />
               <div className="text-center">
                 <h3 className="text-lg font-semibold text-white mb-2">
                   Loading Session
                 </h3>
-                <p className="text-slate-300 text-sm">
+                <p className="text-neutral-300 text-sm">
                   Fetching reconciliation data...
                 </p>
               </div>
@@ -1214,14 +1200,14 @@ export default function AgentReconciliationPage() {
       {/* Loading State */}
       {isLoading && (
         <div className="flex-1 flex items-center justify-center">
-          <div className="bg-slate-800 rounded-lg p-8 border border-slate-600">
+          <div className="bg-neutral-950 rounded-lg p-8 border border-neutral-900">
             <div className="flex flex-col items-center space-y-4">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400" />
               <div className="text-center">
                 <h3 className="text-lg font-semibold text-white mb-2">
                   Agent is Reconciling
                 </h3>
-                <p className="text-slate-300 text-sm">
+                <p className="text-neutral-300 text-sm">
                   The AI agent is analyzing your financial data and finding
                   matches...
                 </p>
@@ -1231,412 +1217,373 @@ export default function AgentReconciliationPage() {
         </div>
       )}
 
-      {/* Main Card-Based Interface */}
+      {/* Main Table Interface */}
       {currentSession && currentSession.bank_data.length > 0 && !isLoading && (
         <div className="flex-1 overflow-auto">
-          <div className="bg-slate-800 px-6 py-4 border-b border-slate-600">
+          <div className="bg-neutral-950 px-6 py-4 border-b border-neutral-900">
             <div className="flex justify-between items-center">
               <div>
                 <h3 className="text-lg font-semibold text-white">
-                  Reconciliation Groups
+                  Reconciliation Table
                 </h3>
-                <p className="text-slate-400 text-sm">
+                <p className="text-neutral-400 text-sm">
                   {currentSession.bank_data.length} bank entries,{" "}
                   {currentSession.gl_data.length} ledger entries
                 </p>
               </div>
-              <div className="flex space-x-6 text-sm">
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-green-500 rounded" />
-                  <span className="text-slate-300">High Confidence Match</span>
+              <div className="flex items-center space-x-6">
+                <div className="flex space-x-6 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-green-500 rounded" />
+                    <span className="text-neutral-300">
+                      High Confidence Match
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-yellow-500 rounded" />
+                    <span className="text-neutral-300">
+                      Low Confidence Match
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-neutral-500 rounded" />
+                    <span className="text-neutral-300">No Match</span>
+                  </div>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-yellow-500 rounded" />
-                  <span className="text-slate-300">Low Confidence Match</span>
+                <button
+                  type="button"
+                  onClick={toggleManualMatchMode}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    manualMatchMode
+                      ? "bg-blue-600 text-white hover:bg-blue-700"
+                      : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
+                  }`}
+                >
+                  {manualMatchMode ? "Exit Selection" : "Select Matches"}
+                </button>
+                {manualMatchMode &&
+                  selectedBankEntry !== null &&
+                  selectedGlEntries.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={confirmManualMatch}
+                      className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors"
+                    >
+                      Confirm Match
+                    </button>
+                  )}
+              </div>
+            </div>
+            <div className="p-2 bg-blue-500/20 rounded-lg mt-2">
+              <div className="flex items-center space-x-2">
+                <div className="w-5 h-5 bg-blue-400 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs font-bold">i</span>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-slate-500 rounded" />
-                  <span className="text-slate-300">No Match</span>
-                </div>
+                <p className="text-neutral-300 text-sm flex-1">
+                  {agentMessage}
+                </p>
               </div>
             </div>
           </div>
 
-          <div className="p-6 space-y-4">
-            {createGroupedData().map((group, groupIndex) => {
-              // Handle unmatched entries data object first
-              if (
-                group &&
-                typeof group === "object" &&
-                "bankEntries" in group &&
-                "glEntries" in group
-              ) {
-                const bankEntries = group.bankEntries;
-                const glEntries = group.glEntries;
-                const maxEntries = Math.max(
-                  bankEntries.length,
-                  glEntries.length,
-                );
-
-                return (
-                  <div key="unmatched-entries" className="space-y-2">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-white">
-                        Unmatched Entries
-                      </h3>
-                      <div className="flex items-center space-x-3">
-                        <button
-                          type="button"
-                          onClick={toggleManualMatchMode}
-                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                            manualMatchMode
-                              ? "bg-blue-600 text-white hover:bg-blue-700"
-                              : "bg-slate-600 text-slate-300 hover:bg-slate-700"
-                          }`}
-                        >
-                          {manualMatchMode
-                            ? "Exit Selection"
-                            : "Select Matches"}
-                        </button>
-                        {manualMatchMode &&
-                          selectedBankEntry !== null &&
-                          selectedGlEntries.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={confirmManualMatch}
-                              className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors"
-                            >
-                              Confirm Match
-                            </button>
-                          )}
-                      </div>
-                    </div>
-                    {Array.from({ length: maxEntries }, (_, i) => (
-                      <div
-                        key={`unmatched-row-${i}`}
-                        className="grid grid-cols-1 lg:grid-cols-2 gap-3"
-                      >
-                        {/* Bank Entry Column */}
-                        <div className="space-y-2">
-                          {bankEntries[i] && (
-                            <div
-                              className={`rounded-lg border-2 p-2 transition-all duration-200 cursor-pointer ${
-                                manualMatchMode &&
-                                selectedBankEntry === bankEntries[i].bankIndex
-                                  ? "bg-blue-900/20 border-blue-500"
-                                  : manualMatchMode
-                                    ? "bg-slate-800/20 border-slate-600 hover:border-blue-400"
-                                    : "bg-slate-800/20 border-slate-600"
-                              }`}
-                              onClick={() =>
-                                selectBankEntry(bankEntries[i].bankIndex)
-                              }
-                            >
-                              <div className="flex items-center justify-between mb-1">
-                                <h4 className="text-sm font-semibold text-white">
-                                  {bankEntries[i].isRejected
-                                    ? "Rejected"
-                                    : "Unmatched"}{" "}
-                                  Bank Entry #{bankEntries[i].bankIndex}
-                                </h4>
-                                <span
-                                  className={`text-sm ${
-                                    manualMatchMode &&
-                                    selectedBankEntry ===
-                                      bankEntries[i].bankIndex
-                                      ? "text-blue-400"
-                                      : "text-slate-400"
-                                  }`}
-                                >
-                                  {manualMatchMode &&
-                                  selectedBankEntry === bankEntries[i].bankIndex
-                                    ? "✓"
-                                    : "○"}
-                                </span>
-                              </div>
-                              <div className="grid grid-cols-2 gap-1 text-xs">
-                                {bankEntries[i].bankEntry &&
-                                  Object.entries(bankEntries[i].bankEntry)
-                                    .slice(0, 4)
-                                    .map(([key, value]) => (
-                                      <div key={key}>
-                                        <span className="text-slate-400 text-xs block">
-                                          {key.replace(/_/g, " ").toUpperCase()}
-                                        </span>
-                                        <span className="text-white text-xs truncate">
-                                          {String(value)}
-                                        </span>
-                                      </div>
-                                    ))}
-                              </div>
-                              {bankEntries[i].isRejected &&
-                                bankEntries[i].bankMatch && (
-                                  <div className="mt-1 pt-1 border-t border-slate-600">
-                                    <span className="text-red-400 text-xs">
-                                      Previously matched to GL [
-                                      {bankEntries[i].bankMatch.glIndexes.join(
-                                        ", ",
-                                      )}
-                                      ]
-                                    </span>
-                                  </div>
-                                )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* GL Entry Column */}
-                        <div className="space-y-2">
-                          {glEntries[i] && (
-                            <div
-                              className={`rounded-lg border-2 p-2 transition-all duration-200 cursor-pointer ${
-                                manualMatchMode &&
-                                selectedGlEntries.includes(
-                                  glEntries[i].glEntries[0]?.glIndex,
-                                )
-                                  ? "bg-blue-900/20 border-blue-500"
-                                  : manualMatchMode &&
-                                      selectedBankEntry !== null
-                                    ? "bg-slate-800/20 border-slate-600 hover:border-blue-400"
-                                    : "bg-slate-800/20 border-slate-600"
-                              }`}
-                              onClick={() =>
-                                selectGlEntry(
-                                  glEntries[i].glEntries[0]?.glIndex,
-                                )
-                              }
-                            >
-                              <div className="flex items-center justify-between mb-1">
-                                <h4 className="text-sm font-semibold text-white">
-                                  Unmatched GL Entry #
-                                  {glEntries[i].glEntries[0]?.glIndex}
-                                </h4>
-                                <span
-                                  className={`text-sm ${
-                                    manualMatchMode &&
-                                    selectedGlEntries.includes(
-                                      glEntries[i].glEntries[0]?.glIndex,
-                                    )
-                                      ? "text-blue-400"
-                                      : "text-slate-400"
-                                  }`}
-                                >
-                                  {manualMatchMode &&
-                                  selectedGlEntries.includes(
-                                    glEntries[i].glEntries[0]?.glIndex,
-                                  )
-                                    ? "✓"
-                                    : "○"}
-                                </span>
-                              </div>
-                              <div className="grid grid-cols-2 gap-1 text-xs">
-                                {Object.entries(glEntries[i].glEntries[0].data)
-                                  .slice(0, 4)
-                                  .map(([key, value]) => (
-                                    <div key={key}>
-                                      <span className="text-slate-400 text-xs block">
-                                        {key.replace(/_/g, " ").toUpperCase()}
-                                      </span>
-                                      <span className="text-white text-xs truncate">
-                                        {String(value)}
-                                      </span>
-                                    </div>
-                                  ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                );
-              }
-
-              // Handle regular matched groups
-              const getGroupStyling = () => {
-                switch (group.groupStyle) {
-                  case "approved":
-                    return "bg-green-900/20 border-green-500 hover:bg-green-900/30";
-                  case "high-confidence":
-                    return "bg-green-800/20 border-green-400 hover:bg-green-800/30";
-                  case "low-confidence":
-                    return "bg-yellow-800/20 border-yellow-400 hover:bg-yellow-800/30";
-                  default:
-                    return "bg-slate-800/50 border-slate-600 hover:bg-slate-700/60";
-                }
-              };
-
-              const getStatusIcon = () => {
-                switch (group.groupStyle) {
-                  case "approved":
-                    return "✓";
-                  case "high-confidence":
-                    return "?";
-                  case "low-confidence":
-                    return "?";
-                  default:
-                    return "○";
-                }
-              };
-
-              const getStatusColor = () => {
-                switch (group.groupStyle) {
-                  case "approved":
-                    return "text-green-400";
-                  case "high-confidence":
-                    return "text-green-400";
-                  case "low-confidence":
-                    return "text-yellow-400";
-                  default:
-                    return "text-slate-400";
-                }
-              };
-
-              // Handle unmatched GL entries differently
-              if (group.isUnmatchedGl) {
-                return (
-                  <div
-                    key={`unmatched-gl-${groupIndex}`}
-                    className={`rounded-lg border-2 p-3 transition-all duration-200 ${getGroupStyling()}`}
+          {/* Table Container */}
+          <div className="overflow-auto">
+            <table className="w-full border-collapse">
+              {/* Table Header */}
+              <thead className="bg-neutral-900 border-b border-neutral-900 sticky top-0 z-10">
+                <tr>
+                  <th
+                    colSpan={6}
+                    className="text-white font-semibold text-center py-3 border-r-4 border-r-neutral-700 text-sm bg-neutral-900"
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-base font-semibold text-white">
-                        Unmatched GL Entry #{group.glEntries[0].glIndex}
-                      </h4>
-                      <span className={`text-lg ${getStatusColor()}`}>
-                        {getStatusIcon()}
-                      </span>
-                    </div>
-                    <div className="bg-slate-800/50 rounded p-3">
-                      <div className="grid grid-cols-4 gap-2 text-sm">
-                        {Object.entries(group.glEntries[0].data).map(
-                          ([key, value]) => (
-                            <div key={key}>
-                              <span className="text-slate-400 text-xs block">
-                                {key.replace(/_/g, " ").toUpperCase()}
-                              </span>
-                              <span className="text-white text-xs truncate">
-                                {String(value)}
-                              </span>
-                            </div>
-                          ),
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
+                    Bank Statement
+                  </th>
+                  <th
+                    colSpan={5}
+                    className="text-white font-semibold text-center py-3 text-sm bg-neutral-900"
+                  >
+                    General Ledger
+                  </th>
+                </tr>
+                <tr className="bg-neutral-900">
+                  {/* Bank Statement Columns */}
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r border-neutral-900 text-xs">
+                    #
+                  </th>
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r border-neutral-900 text-xs">
+                    Date
+                  </th>
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r border-neutral-900 text-xs">
+                    Description
+                  </th>
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r border-neutral-900 text-xs">
+                    Amount
+                  </th>
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r border-neutral-900 text-xs">
+                    Type
+                  </th>
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r-4 border-r-neutral-700 text-xs">
+                    Balance
+                  </th>
+                  {/* General Ledger Columns */}
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r border-neutral-900 text-xs">
+                    #
+                  </th>
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r border-neutral-900 text-xs">
+                    Date
+                  </th>
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r border-neutral-900 text-xs">
+                    Account
+                  </th>
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 border-r border-neutral-900 text-xs">
+                    Debit
+                  </th>
+                  <th className="text-neutral-200 font-medium text-center py-2 px-3 text-xs">
+                    Credit
+                  </th>
+                </tr>
+              </thead>
 
-              return (
-                <div
-                  key={`group-${groupIndex}`}
-                  className={`rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 ${getGroupStyling()}`}
-                  onClick={() =>
-                    group.bankMatch && handleCellClick(group.bankMatch)
-                  }
-                >
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {/* Bank Entry Card */}
-                    <div className="bg-slate-800/50 rounded p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-base font-semibold text-white">
-                          Bank #{group.bankIndex}
-                        </h4>
-                        <div className="flex items-center space-x-2">
-                          <span className={`text-lg ${getStatusColor()}`}>
-                            {getStatusIcon()}
-                          </span>
-                          {group.bankMatch &&
-                            (group.groupStyle === "approved" ? (
-                              <span className="text-green-400 text-xs font-medium">
-                                Approved
-                              </span>
-                            ) : (
-                              <span
-                                className={`text-xs font-medium ${getStatusColor()}`}
-                              >
-                                Pending Approval
-                              </span>
-                            ))}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 text-sm">
-                        {group.bankEntry &&
-                          Object.entries(group.bankEntry).map(
-                            ([key, value]) => (
-                              <div key={key}>
-                                <span className="text-slate-400 text-xs block">
-                                  {key.replace(/_/g, " ").toUpperCase()}
-                                </span>
-                                <span className="text-white text-sm">
-                                  {String(value)}
-                                </span>
-                              </div>
-                            ),
-                          )}
-                      </div>
-                      {group.bankMatch && (
-                        <div className="mt-2 pt-2 border-t border-slate-600">
-                          <span className="text-slate-400 text-xs">
-                            GL [{group.bankMatch.glIndexes.join(", ")}]
-                          </span>
-                        </div>
-                      )}
-                    </div>
+              {/* Table Body */}
+              <tbody className="bg-black">
+                {(() => {
+                  const rows = [];
+                  const rowIndex = 0;
 
-                    {/* GL Entries Card */}
-                    <div className="bg-slate-800/50 rounded p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-base font-semibold text-white">
-                          GL Entries ({group.glEntries.length})
-                        </h4>
-                      </div>
-                      {group.glEntries.length > 0 ? (
-                        <div className="space-y-2">
-                          {group.glEntries.map((glEntry) => (
-                            <div
-                              key={glEntry.glIndex}
-                              className="bg-slate-700/50 rounded p-2"
+                  createGroupedData().forEach((group, groupIndex) => {
+                    // Handle unmatched entries section
+                    if (
+                      group &&
+                      typeof group === "object" &&
+                      "bankEntries" in group &&
+                      "glEntries" in group
+                    ) {
+                      // Add section header for unmatched
+                      rows.push(
+                        <tr
+                          key="unmatched-header"
+                          className="bg-neutral-900 border-t-2 border-neutral-900"
+                        >
+                          <td
+                            colSpan={11}
+                            className="text-white font-medium py-2 px-4 text-sm"
+                          >
+                            Unmatched Entries
+                          </td>
+                        </tr>,
+                      );
+
+                      const bankEntries = group.bankEntries;
+                      const glEntries = group.glEntries;
+                      const maxEntries = Math.max(
+                        bankEntries.length,
+                        glEntries.length,
+                      );
+
+                      for (let i = 0; i < maxEntries; i++) {
+                        const bankEntry = bankEntries[i];
+                        const glEntry = glEntries[i]?.glEntries[0];
+
+                        rows.push(
+                          <tr
+                            key={`unmatched-${i}`}
+                            className={`border-b border-neutral-900 hover:bg-neutral-950/50 ${
+                              manualMatchMode &&
+                              bankEntry &&
+                              selectedBankEntry === bankEntry.bankIndex
+                                ? "bg-blue-900/20"
+                                : ""
+                            }`}
+                          >
+                            {/* Bank Entry Cells */}
+                            <td
+                              className={`py-2 px-3 text-center text-xs border-r border-neutral-900 cursor-pointer ${
+                                manualMatchMode && bankEntry
+                                  ? selectedBankEntry === bankEntry.bankIndex
+                                    ? "text-blue-400 font-bold"
+                                    : "text-neutral-300 hover:text-white"
+                                  : "text-neutral-300"
+                              }`}
+                              onClick={() =>
+                                bankEntry &&
+                                selectBankEntry(bankEntry.bankIndex)
+                              }
                             >
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-slate-300 text-sm font-medium">
-                                  GL #{glEntry.glIndex}
-                                </span>
-                                {glEntry.match && (
-                                  <span className="text-slate-400 text-xs">
-                                    Bank {glEntry.match.bankIndex}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="grid grid-cols-2 gap-1 text-xs">
-                                {Object.entries(glEntry.data)
-                                  .slice(0, 4)
-                                  .map(([key, value]) => (
-                                    <div key={key}>
-                                      <span className="text-slate-400 text-xs block">
-                                        {key.replace(/_/g, " ").toUpperCase()}
-                                      </span>
-                                      <span className="text-white text-xs truncate">
-                                        {String(value)}
-                                      </span>
-                                    </div>
-                                  ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-4">
-                          <span className="text-slate-500 text-sm">
-                            No GL entries matched
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                              {bankEntry
+                                ? `${bankEntry.bankIndex}${manualMatchMode && selectedBankEntry === bankEntry.bankIndex ? " ✓" : ""}`
+                                : ""}
+                            </td>
+                            <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate">
+                              {bankEntry?.bankEntry?.Date || ""}
+                            </td>
+                            <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate max-w-32">
+                              {bankEntry?.bankEntry?.Description || ""}
+                            </td>
+                            <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
+                              {bankEntry?.bankEntry?.Amount || ""}
+                            </td>
+                            <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
+                              {bankEntry?.bankEntry?.Type || ""}
+                            </td>
+                            <td className="py-2 px-3 text-center text-xs text-white border-r-4 border-r-neutral-700">
+                              {bankEntry?.bankEntry?.Balance || ""}
+                            </td>
+
+                            {/* GL Entry Cells */}
+                            <td
+                              className={`py-2 px-3 text-center text-xs border-r border-neutral-900 cursor-pointer ${
+                                manualMatchMode &&
+                                glEntry &&
+                                selectedBankEntry !== null
+                                  ? selectedGlEntries.includes(glEntry.glIndex)
+                                    ? "text-blue-400 font-bold"
+                                    : "text-neutral-300 hover:text-white"
+                                  : "text-neutral-300"
+                              }`}
+                              onClick={() =>
+                                glEntry && selectGlEntry(glEntry.glIndex)
+                              }
+                            >
+                              {glEntry
+                                ? `${glEntry.glIndex}${manualMatchMode && selectedGlEntries.includes(glEntry.glIndex) ? " ✓" : ""}`
+                                : ""}
+                            </td>
+                            <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate">
+                              {glEntry?.data["Date (MM/DD/YYYY)"] ||
+                                glEntry?.data.Date ||
+                                ""}
+                            </td>
+                            <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate max-w-24">
+                              {glEntry?.data.Account || ""}
+                            </td>
+                            <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
+                              {glEntry?.data.Debit || ""}
+                            </td>
+                            <td className="py-2 px-3 text-center text-xs text-white">
+                              {glEntry?.data.Credit || ""}
+                            </td>
+                          </tr>,
+                        );
+                      }
+                      return;
+                    }
+
+                    // Handle regular matched groups
+                    if (group.isUnmatchedGl) {
+                      return;
+                    }
+
+                    const getRowClass = () => {
+                      switch (group.groupStyle) {
+                        case "approved":
+                          return "bg-green-900/20 border-l-4 border-l-green-500";
+                        case "high-confidence":
+                          return "bg-green-800/20 border-l-4 border-l-green-400";
+                        case "low-confidence":
+                          return "bg-yellow-800/20 border-l-4 border-l-yellow-400";
+                        default:
+                          return "bg-neutral-950";
+                      }
+                    };
+
+                    const getStatusIcon = () => {
+                      switch (group.groupStyle) {
+                        case "approved":
+                          return "✓";
+                        case "high-confidence":
+                          return "?";
+                        case "low-confidence":
+                          return "?";
+                        default:
+                          return "○";
+                      }
+                    };
+
+                    const rowsNeeded = Math.max(
+                      1,
+                      group.glEntries ? group.glEntries.length : 0,
+                    );
+                    const groupId = `group-${groupIndex}`;
+
+                    for (let rowIdx = 0; rowIdx < rowsNeeded; rowIdx++) {
+                      const glEntry =
+                        group.glEntries && group.glEntries[rowIdx];
+                      const isFirstRow = rowIdx === 0;
+
+                      rows.push(
+                        <tr
+                          key={`group-${groupIndex}-${rowIdx}`}
+                          className={`border-b border-neutral-900 cursor-pointer ${getGroupHoverClass(groupId)} ${
+                            isFirstRow
+                              ? `${getRowClass()} border-t-2 border-t-neutral-800`
+                              : ""
+                          }`}
+                          onClick={() =>
+                            group.bankMatch && handleCellClick(group.bankMatch)
+                          }
+                          onMouseEnter={() => handleGroupMouseEnter(groupId)}
+                          onMouseLeave={handleGroupMouseLeave}
+                        >
+                          {/* Bank Entry Cells - only show on first row */}
+                          <td
+                            className={`py-2 px-3 text-center text-xs text-neutral-300 border-r border-neutral-900 ${!isFirstRow ? "border-l-4 border-l-neutral-600" : ""}`}
+                          >
+                            {isFirstRow
+                              ? `${group.bankIndex} ${getStatusIcon()}`
+                              : ""}
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate">
+                            {isFirstRow ? group.bankEntry?.Date || "" : ""}
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate max-w-32">
+                            {isFirstRow
+                              ? group.bankEntry?.Description || ""
+                              : ""}
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
+                            {isFirstRow ? group.bankEntry?.Amount || "" : ""}
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
+                            {isFirstRow ? group.bankEntry?.Type || "" : ""}
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs text-white border-r-4 border-r-neutral-700">
+                            {isFirstRow ? group.bankEntry?.Balance || "" : ""}
+                          </td>
+
+                          {/* GL Entry Cells */}
+                          <td className="py-2 px-3 text-center text-xs text-neutral-300 border-r border-neutral-900">
+                            {glEntry ? glEntry.glIndex : ""}
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate">
+                            {glEntry
+                              ? glEntry.data["Date (MM/DD/YYYY)"] ||
+                                glEntry.data.Date ||
+                                ""
+                              : ""}
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900 truncate max-w-24">
+                            {glEntry
+                              ? glEntry.data.Account || ""
+                              : glEntry === undefined &&
+                                  group.glEntries?.length === 0
+                                ? "No match"
+                                : ""}
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs text-white border-r border-neutral-900">
+                            {glEntry ? glEntry.data.Debit || "" : ""}
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs text-white">
+                            {glEntry ? glEntry.data.Credit || "" : ""}
+                          </td>
+                        </tr>,
+                      );
+                    }
+                  });
+
+                  return rows;
+                })()}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -1644,13 +1591,13 @@ export default function AgentReconciliationPage() {
       {/* Match Details Modal */}
       {showMatchModal && selectedMatch && currentSession && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
+          <div className="bg-neutral-950 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
             {/* Loading Overlay */}
             {isUpdatingMatch && (
-              <div className="absolute inset-0 bg-slate-800/80 rounded-lg flex items-center justify-center z-10">
+              <div className="absolute inset-0 bg-neutral-950/80 rounded-lg flex items-center justify-center z-10">
                 <div className="flex flex-col items-center space-y-3">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
-                  <p className="text-slate-300 text-sm">Updating match...</p>
+                  <p className="text-neutral-300 text-sm">Updating match...</p>
                 </div>
               </div>
             )}
@@ -1659,7 +1606,7 @@ export default function AgentReconciliationPage() {
               <button
                 type="button"
                 onClick={() => setShowMatchModal(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-neutral-400 hover:text-white"
               >
                 ✕
               </button>
@@ -1668,16 +1615,16 @@ export default function AgentReconciliationPage() {
             <div className="space-y-6">
               {/* Match Information */}
               <div>
-                <h4 className="text-slate-300 font-medium mb-2">
+                <h4 className="text-neutral-300 font-medium mb-2">
                   Match Information
                 </h4>
-                <div className="bg-slate-700 p-4 rounded">
+                <div className="bg-neutral-900 p-4 rounded">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-white font-medium">
                         Bank Entry #{selectedMatch.bankIndex}
                       </p>
-                      <p className="text-slate-400 text-sm">
+                      <p className="text-neutral-400 text-sm">
                         Confidence:{" "}
                         {(selectedMatch.confidence * 100).toFixed(1)}%
                       </p>
@@ -1686,7 +1633,7 @@ export default function AgentReconciliationPage() {
                       <p className="text-white font-medium">
                         GL Entries [#{selectedMatch.glIndexes.join(", ")}]
                       </p>
-                      <p className="text-slate-400 text-sm">
+                      <p className="text-neutral-400 text-sm">
                         Status: {selectedMatch.status}
                       </p>
                     </div>
@@ -1696,17 +1643,17 @@ export default function AgentReconciliationPage() {
 
               {/* Bank Statement Entry */}
               <div>
-                <h4 className="text-slate-300 font-medium mb-2">
+                <h4 className="text-neutral-300 font-medium mb-2">
                   Bank Statement Entry
                 </h4>
-                <div className="bg-slate-700 p-4 rounded">
+                <div className="bg-neutral-900 p-4 rounded">
                   <div className="grid grid-cols-2 gap-4">
                     {currentSession.bank_data[selectedMatch.bankIndex] &&
                       Object.entries(
                         currentSession.bank_data[selectedMatch.bankIndex],
                       ).map(([key, value]) => (
                         <div key={key}>
-                          <span className="text-slate-400 text-sm">
+                          <span className="text-neutral-400 text-sm">
                             {key.replace(/_/g, " ").toUpperCase()}:
                           </span>
                           <p className="text-white font-medium">
@@ -1715,7 +1662,7 @@ export default function AgentReconciliationPage() {
                         </div>
                       ))}
                   </div>
-                  <p className="text-slate-400">
+                  <p className="text-neutral-400">
                     Transaction Lifecycle: {selectedMatch.glIndexes.length} GL
                     entries
                   </p>
@@ -1726,12 +1673,12 @@ export default function AgentReconciliationPage() {
               {selectedMatch.glIndexes !== null &&
                 selectedMatch.glIndexes.length > 0 && (
                   <div>
-                    <h4 className="text-slate-300 font-medium mb-2">
+                    <h4 className="text-neutral-300 font-medium mb-2">
                       General Ledger Entries
                     </h4>
                     {selectedMatch.glIndexes.map((glIndex) => (
-                      <div className="bg-slate-700 p-4 rounded" key={glIndex}>
-                        <span className="text-slate-400 text-sm">
+                      <div className="bg-neutral-900 p-4 rounded" key={glIndex}>
+                        <span className="text-neutral-400 text-sm">
                           GL Entry #{glIndex}:
                         </span>
                         <div className="grid grid-cols-2 gap-4">
@@ -1739,7 +1686,7 @@ export default function AgentReconciliationPage() {
                             Object.entries(currentSession.gl_data[glIndex]).map(
                               ([key, value]) => (
                                 <div key={key}>
-                                  <span className="text-slate-400 text-sm">
+                                  <span className="text-neutral-400 text-sm">
                                     {key.replace(/_/g, " ").toUpperCase()}:
                                   </span>
                                   <p className="text-white font-medium">
@@ -1756,11 +1703,11 @@ export default function AgentReconciliationPage() {
 
               {/* AI Reasoning */}
               <div>
-                <h4 className="text-slate-300 font-medium mb-2">
+                <h4 className="text-neutral-300 font-medium mb-2">
                   AI Reasoning
                 </h4>
-                <div className="bg-slate-700 p-4 rounded">
-                  <p className="text-slate-300">{selectedMatch.reasoning}</p>
+                <div className="bg-neutral-900 p-4 rounded">
+                  <p className="text-neutral-300">{selectedMatch.reasoning}</p>
                 </div>
               </div>
 
@@ -1772,7 +1719,7 @@ export default function AgentReconciliationPage() {
                     fetchMatchingDocuments(selectedMatch.bankIndex)
                   }
                   disabled={isLoadingDocuments}
-                  className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                  className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:bg-neutral-900 disabled:cursor-not-allowed transition-colors"
                 >
                   {isLoadingDocuments ? "Loading..." : "📄 Show Docs"}
                 </button>
@@ -1788,7 +1735,7 @@ export default function AgentReconciliationPage() {
                         updateMatchStatus(selectedMatch.bankIndex, "approved")
                       }
                       disabled={isUpdatingMatch}
-                      className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                      className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-neutral-900 disabled:cursor-not-allowed transition-colors"
                     >
                       {isUpdatingMatch ? "Processing..." : "✓ Approve Match"}
                     </button>
@@ -1798,7 +1745,7 @@ export default function AgentReconciliationPage() {
                         updateMatchStatus(selectedMatch.bankIndex, "rejected")
                       }
                       disabled={isUpdatingMatch}
-                      className="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                      className="flex-1 bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-neutral-900 disabled:cursor-not-allowed transition-colors"
                     >
                       {isUpdatingMatch ? "Processing..." : "✗ Reject Match"}
                     </button>
@@ -1809,10 +1756,10 @@ export default function AgentReconciliationPage() {
               {selectedMatch.status === "pending" &&
                 selectedMatch.glIndexes.length === 0 && (
                   <div className="pt-4">
-                    <div className="p-4 rounded-lg bg-slate-700 border border-slate-600">
+                    <div className="p-4 rounded-lg bg-neutral-900 border border-neutral-900">
                       <div className="flex items-center space-x-2">
-                        <span className="text-slate-400 text-xl">ℹ️</span>
-                        <span className="text-slate-300">
+                        <span className="text-neutral-400 text-xl">ℹ️</span>
+                        <span className="text-neutral-300">
                           No match suggested by AI. This transaction requires
                           manual review or additional data.
                         </span>
@@ -1859,13 +1806,13 @@ export default function AgentReconciliationPage() {
       {/* Document Upload Modal */}
       {showDocumentUpload && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
+          <div className="bg-neutral-950 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
             {/* Loading Overlay */}
             {isUploadingDocuments && (
-              <div className="absolute inset-0 bg-slate-800/80 rounded-lg flex items-center justify-center z-10">
+              <div className="absolute inset-0 bg-neutral-950/80 rounded-lg flex items-center justify-center z-10">
                 <div className="flex flex-col items-center space-y-3">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
-                  <p className="text-slate-300 text-sm">
+                  <p className="text-neutral-300 text-sm">
                     Uploading documents...
                   </p>
                 </div>
@@ -1879,7 +1826,7 @@ export default function AgentReconciliationPage() {
               <button
                 type="button"
                 onClick={() => setShowDocumentUpload(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-neutral-400 hover:text-white"
               >
                 ✕
               </button>
@@ -1887,7 +1834,7 @@ export default function AgentReconciliationPage() {
 
             <div className="space-y-6">
               <div>
-                <p className="text-slate-300 text-sm mb-4">
+                <p className="text-neutral-300 text-sm mb-4">
                   Upload PDF documents (invoices, receipts, statements) to
                   enhance the reconciliation process.
                 </p>
@@ -1897,7 +1844,7 @@ export default function AgentReconciliationPage() {
                   className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
                     documentDropzone.isDragActive
                       ? "border-purple-400 bg-purple-900/20"
-                      : "border-slate-500 hover:border-slate-400"
+                      : "border-neutral-900 hover:border-neutral-700"
                   }`}
                 >
                   <input {...documentDropzone.getInputProps()} />
@@ -1909,7 +1856,7 @@ export default function AgentReconciliationPage() {
                           ? "Drop your PDF documents here"
                           : "Drag & drop PDF documents here, or click to select"}
                       </p>
-                      <p className="text-slate-400 text-sm mt-1">
+                      <p className="text-neutral-400 text-sm mt-1">
                         Supports PDF files only
                       </p>
                     </div>
@@ -1927,15 +1874,15 @@ export default function AgentReconciliationPage() {
                     {uploadedDocuments.map((file, index) => (
                       <div
                         key={index}
-                        className="bg-slate-700 rounded p-3 flex items-center justify-between"
+                        className="bg-neutral-900 rounded p-3 flex items-center justify-between"
                       >
                         <div className="flex items-center space-x-3">
-                          <span className="text-slate-400">📄</span>
+                          <span className="text-neutral-400">📄</span>
                           <div>
                             <p className="text-white text-sm font-medium">
                               {file.name}
                             </p>
-                            <p className="text-slate-400 text-xs">
+                            <p className="text-neutral-400 text-xs">
                               {(file.size / 1024 / 1024).toFixed(2)} MB
                             </p>
                           </div>
@@ -1943,7 +1890,7 @@ export default function AgentReconciliationPage() {
                         <button
                           type="button"
                           onClick={() => removeDocument(index)}
-                          className="text-slate-400 hover:text-white"
+                          className="text-neutral-400 hover:text-white"
                         >
                           ✕
                         </button>
@@ -1958,7 +1905,7 @@ export default function AgentReconciliationPage() {
                 <button
                   type="button"
                   onClick={() => setShowDocumentUpload(false)}
-                  className="flex-1 bg-slate-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-slate-700 transition-colors"
+                  className="flex-1 bg-neutral-900 text-white px-6 py-3 rounded-lg font-medium hover:bg-neutral-800 transition-colors"
                 >
                   Cancel
                 </button>
@@ -1968,7 +1915,7 @@ export default function AgentReconciliationPage() {
                   disabled={
                     uploadedDocuments.length === 0 || isUploadingDocuments
                   }
-                  className="flex-1 bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:bg-neutral-900 disabled:cursor-not-allowed transition-colors"
                 >
                   {isUploadingDocuments
                     ? "Uploading..."
@@ -1983,13 +1930,13 @@ export default function AgentReconciliationPage() {
       {/* Manual Match Explanation Modal */}
       {showExplanationModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
+          <div className="bg-neutral-950 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
             {/* Loading Overlay */}
             {isCreatingManualMatch && (
-              <div className="absolute inset-0 bg-slate-800/80 rounded-lg flex items-center justify-center z-10">
+              <div className="absolute inset-0 bg-neutral-950/80 rounded-lg flex items-center justify-center z-10">
                 <div className="flex flex-col items-center space-y-3">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
-                  <p className="text-slate-300 text-sm">
+                  <p className="text-neutral-300 text-sm">
                     Creating manual match...
                   </p>
                 </div>
@@ -2003,7 +1950,7 @@ export default function AgentReconciliationPage() {
               <button
                 type="button"
                 onClick={() => setShowExplanationModal(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-neutral-400 hover:text-white"
               >
                 ✕
               </button>
@@ -2011,14 +1958,14 @@ export default function AgentReconciliationPage() {
 
             <div className="space-y-6">
               <div>
-                <p className="text-slate-300 text-sm mb-4">
+                <p className="text-neutral-300 text-sm mb-4">
                   Please explain what to look for to find the supporting
                   document for this match between Bank #{selectedBankEntry} and
                   GL entries [{selectedGlEntries.join(", ")}].
                 </p>
 
                 <div className="space-y-3">
-                  <div className="bg-slate-700 p-3 rounded">
+                  <div className="bg-neutral-900 p-3 rounded">
                     <h4 className="text-sm font-medium text-white mb-2">
                       Selected Bank Entry #{selectedBankEntry}
                     </h4>
@@ -2032,7 +1979,7 @@ export default function AgentReconciliationPage() {
                             .slice(0, 4)
                             .map(([key, value]) => (
                               <div key={key}>
-                                <span className="text-slate-400 text-xs block">
+                                <span className="text-neutral-400 text-xs block">
                                   {key.replace(/_/g, " ").toUpperCase()}
                                 </span>
                                 <span className="text-white text-xs">
@@ -2044,13 +1991,13 @@ export default function AgentReconciliationPage() {
                       )}
                   </div>
 
-                  <div className="bg-slate-700 p-3 rounded">
+                  <div className="bg-neutral-900 p-3 rounded">
                     <h4 className="text-sm font-medium text-white mb-2">
                       Selected GL Entries [{selectedGlEntries.join(", ")}]
                     </h4>
                     {selectedGlEntries.map((glIndex) => (
                       <div key={glIndex} className="mb-2 last:mb-0">
-                        <span className="text-slate-400 text-xs">
+                        <span className="text-neutral-400 text-xs">
                           GL #{glIndex}:
                         </span>
                         {currentSession?.gl_data[glIndex] && (
@@ -2059,7 +2006,7 @@ export default function AgentReconciliationPage() {
                               .slice(0, 4)
                               .map(([key, value]) => (
                                 <div key={key}>
-                                  <span className="text-slate-400 text-xs block">
+                                  <span className="text-neutral-400 text-xs block">
                                     {key.replace(/_/g, " ").toUpperCase()}
                                   </span>
                                   <span className="text-white text-xs">
@@ -2087,10 +2034,10 @@ export default function AgentReconciliationPage() {
                   value={explanationText}
                   onChange={(e) => setExplanationText(e.target.value)}
                   placeholder="Describe what to look for in the supporting document (e.g., vendor name, invoice number, date, amount, purpose of transaction, etc.)"
-                  className="w-full h-32 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-400 resize-none"
+                  className="w-full h-32 px-3 py-2 bg-neutral-900 border border-neutral-900 rounded-lg text-white placeholder-neutral-400 focus:outline-none focus:border-blue-400 resize-none"
                   required
                 />
-                <p className="text-slate-400 text-xs mt-1">
+                <p className="text-neutral-400 text-xs mt-1">
                   This explanation will help the AI find the relevant supporting
                   document.
                 </p>
@@ -2101,7 +2048,7 @@ export default function AgentReconciliationPage() {
                 <button
                   type="button"
                   onClick={() => setShowExplanationModal(false)}
-                  className="flex-1 bg-slate-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-slate-700 transition-colors"
+                  className="flex-1 bg-neutral-900 text-white px-6 py-3 rounded-lg font-medium hover:bg-neutral-800 transition-colors"
                 >
                   Cancel
                 </button>
@@ -2109,7 +2056,7 @@ export default function AgentReconciliationPage() {
                   type="button"
                   onClick={createManualMatch}
                   disabled={!explanationText.trim() || isCreatingManualMatch}
-                  className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:bg-neutral-900 disabled:cursor-not-allowed transition-colors"
                 >
                   {isCreatingManualMatch
                     ? "Creating..."
@@ -2124,7 +2071,7 @@ export default function AgentReconciliationPage() {
       {/* Documents Display Modal */}
       {showDocuments && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
+          <div className="bg-neutral-950 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto relative">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-semibold text-white">
                 Matching Documents
@@ -2132,7 +2079,7 @@ export default function AgentReconciliationPage() {
               <button
                 type="button"
                 onClick={() => setShowDocuments(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-neutral-400 hover:text-white"
               >
                 ✕
               </button>
@@ -2141,12 +2088,12 @@ export default function AgentReconciliationPage() {
             <div className="space-y-6">
               {matchingDocuments.length > 0 ? (
                 <>
-                  <p className="text-slate-300 text-sm">
+                  <p className="text-neutral-300 text-sm">
                     Found {matchingDocuments.length} document(s) that match this
                     transaction:
                   </p>
                   {matchingDocuments.map((doc, index) => (
-                    <div key={index} className="bg-slate-700 rounded-lg p-4">
+                    <div key={index} className="bg-neutral-900 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-white font-medium flex items-center">
                           📄 {doc.filename || "Unknown Document"}
@@ -2168,7 +2115,7 @@ export default function AgentReconciliationPage() {
                       </div>
 
                       {doc.extraction && (
-                        <div className="bg-slate-600 rounded p-3">
+                        <div className="bg-neutral-900 rounded p-3">
                           <h5 className="text-white text-sm font-medium mb-2">
                             Document Details:
                           </h5>
@@ -2176,7 +2123,7 @@ export default function AgentReconciliationPage() {
                             {Object.entries(doc.extraction).map(
                               ([key, value]) => (
                                 <div key={key}>
-                                  <span className="text-slate-400 text-xs block">
+                                  <span className="text-neutral-400 text-xs block">
                                     {key.replace(/_/g, " ").toUpperCase()}:
                                   </span>
                                   <span className="text-white">
@@ -2190,7 +2137,7 @@ export default function AgentReconciliationPage() {
                       )}
 
                       {doc.processing_notes && (
-                        <div className="mt-2 text-slate-400 text-sm">
+                        <div className="mt-2 text-neutral-400 text-sm">
                           {doc.processing_notes}
                         </div>
                       )}
@@ -2199,22 +2146,22 @@ export default function AgentReconciliationPage() {
                 </>
               ) : (
                 <div className="text-center py-8">
-                  <div className="text-slate-500 text-4xl mb-2">📄</div>
-                  <p className="text-slate-400">
+                  <div className="text-neutral-500 text-4xl mb-2">📄</div>
+                  <p className="text-neutral-400">
                     No matching documents found for this transaction.
                   </p>
-                  <p className="text-slate-500 text-sm mt-1">
+                  <p className="text-neutral-500 text-sm mt-1">
                     You may need to upload relevant documents first.
                   </p>
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end pt-4 mt-6 border-t border-slate-600">
+            <div className="flex justify-end pt-4 mt-6 border-t border-neutral-900">
               <button
                 type="button"
                 onClick={() => setShowDocuments(false)}
-                className="bg-slate-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-slate-700 transition-colors"
+                className="bg-neutral-900 text-white px-6 py-2 rounded-lg font-medium hover:bg-neutral-800 transition-colors"
               >
                 Close
               </button>
