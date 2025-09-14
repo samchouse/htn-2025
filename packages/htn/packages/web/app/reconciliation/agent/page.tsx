@@ -72,7 +72,7 @@ export default function AgentReconciliationPage() {
   const [selectedMatch, setSelectedMatch] = useState<MatchDetails | null>(null);
   const [showMatchModal, setShowMatchModal] = useState(false);
   const [agentMessage, setAgentMessage] = useState<string>("");
-  const [isUpdatingMatch, setIsUpdatingMatch] = useState(false);
+  const [_isUpdatingMatch, _setIsUpdatingMatch] = useState(false);
   const [updatingMatches, setUpdatingMatches] = useState<Set<number>>(
     new Set(),
   );
@@ -88,7 +88,7 @@ export default function AgentReconciliationPage() {
   const [explanationText, setExplanationText] = useState("");
   const [isCreatingManualMatch, setIsCreatingManualMatch] = useState(false);
   const [matchingDocuments, setMatchingDocuments] = useState<Document[]>([]);
-  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [_isLoadingDocuments, setIsLoadingDocuments] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
   const [matchesWithDocuments, setMatchesWithDocuments] = useState<Set<number>>(
@@ -105,7 +105,7 @@ export default function AgentReconciliationPage() {
     null,
   );
   const [rejectionComment, setRejectionComment] = useState("");
-  const [, setIsRejectingDocument] = useState(false);
+  const [, _setIsRejectingDocument] = useState(false);
   const [rejectionQueue, setRejectionQueue] = useState<
     Array<{
       id: string;
@@ -274,7 +274,7 @@ export default function AgentReconciliationPage() {
   };
 
   // Helper function to save session to backend
-  const saveSessionToBackend = async (
+  const _saveSessionToBackend = async (
     sessionId: string,
     changeDescription: string,
   ) => {
@@ -313,7 +313,7 @@ export default function AgentReconciliationPage() {
   };
 
   // Helper function to add a manual match to local session state
-  const addManualMatchToSession = (
+  const _addManualMatchToSession = (
     bankIndex: number,
     glIndexes: number[],
     explanation: string,
@@ -345,7 +345,7 @@ export default function AgentReconciliationPage() {
   };
 
   // Helper function to reject a match in local session state
-  const rejectMatchInSession = (bankIndex: number, reason: string) => {
+  const _rejectMatchInSession = (bankIndex: number, reason: string) => {
     if (!currentSession) return;
 
     setCurrentSession((prev) => {
@@ -497,7 +497,7 @@ export default function AgentReconciliationPage() {
     }
   };
 
-  const continueProcessing = async () => {
+  const _continueProcessing = async () => {
     if (!sessionId) return;
 
     setIsLoading(true);
@@ -558,15 +558,22 @@ export default function AgentReconciliationPage() {
       return null;
     }
 
-    const match = currentSession.matches.find(
+    // Find all matches for this bank entry
+    const allMatches = currentSession.matches.filter(
       (m) => m.bank_index === bankIndex,
     );
 
+    // Prioritize non-rejected matches over rejected ones
+    const match =
+      allMatches.find((m) => m.status !== "rejected") || allMatches[0];
+
     console.log(`🔍 getMatchForBankEntry(${bankIndex}):`, {
       totalMatches: currentSession.matches.length,
+      allMatchesForBank: allMatches.length,
       foundMatch: !!match,
       matchStatus: match?.status,
       matchGlIndexes: match?.gl_indexes,
+      prioritizedNonRejected: allMatches.some((m) => m.status !== "rejected"),
     });
 
     if (!match) return null;
@@ -1706,19 +1713,13 @@ export default function AgentReconciliationPage() {
                   )}
                 </div>
                 <p className="text-neutral-300 text-sm flex-1">
-                  {manualMatchMode ? (
-                    selectedBankEntry !== null ? (
-                      selectedGlEntries.length > 0 ? (
-                        `Manual Match Mode: Bank #${selectedBankEntry} → GL [${selectedGlEntries.join(", ")}] selected. Click "Confirm Match" to proceed.`
-                      ) : (
-                        `Manual Match Mode: Bank #${selectedBankEntry} selected. Now select one or more GL entries to match.`
-                      )
-                    ) : (
-                      "Manual Match Mode: Click on a bank entry number to start creating a match."
-                    )
-                  ) : (
-                    agentMessage
-                  )}
+                  {manualMatchMode
+                    ? selectedBankEntry !== null
+                      ? selectedGlEntries.length > 0
+                        ? `Manual Match Mode: Bank #${selectedBankEntry} → GL [${selectedGlEntries.join(", ")}] selected. Click "Confirm Match" to proceed.`
+                        : `Manual Match Mode: Bank #${selectedBankEntry} selected. Now select one or more GL entries to match.`
+                      : "Manual Match Mode: Click on a bank entry number to start creating a match."
+                    : agentMessage}
                 </p>
                 {/* Document search progress indicator */}
                 {searchingDocumentsFor.size > 0 && (
@@ -1732,7 +1733,7 @@ export default function AgentReconciliationPage() {
           </div>
 
           {/* Table Container */}
-          <div className="overflow-auto">
+          <div className="overflow-auto m-6">
             <table className="w-full border-collapse">
               {/* Table Header */}
               <thead className="bg-neutral-900 border-b border-neutral-900 sticky top-0 z-10">
@@ -1793,7 +1794,7 @@ export default function AgentReconciliationPage() {
               <tbody className="bg-black">
                 {(() => {
                   const rows: React.ReactNode[] = [];
-                  const rowIndex = 0;
+                  const _rowIndex = 0;
 
                   createGroupedData().forEach((group, groupIndex) => {
                     // Handle unmatched entries section
@@ -1852,7 +1853,10 @@ export default function AgentReconciliationPage() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 if (manualMatchMode && bankEntry) {
-                                  console.log("🔍 Bank entry clicked:", bankEntry.bankIndex);
+                                  console.log(
+                                    "🔍 Bank entry clicked:",
+                                    bankEntry.bankIndex,
+                                  );
                                   selectBankEntry(bankEntry.bankIndex);
                                 }
                               }}
@@ -1901,7 +1905,10 @@ export default function AgentReconciliationPage() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 if (manualMatchMode && glEntry) {
-                                  console.log("🔍 GL entry clicked:", glEntry.glIndex);
+                                  console.log(
+                                    "🔍 GL entry clicked:",
+                                    glEntry.glIndex,
+                                  );
                                   selectGlEntry(glEntry.glIndex);
                                 }
                               }}
@@ -1956,7 +1963,7 @@ export default function AgentReconciliationPage() {
                       }
                     };
 
-                    const getStatusIcon = () => {
+                    const _getStatusIcon = () => {
                       switch (group.groupStyle) {
                         case "approved":
                           // Check if this approved match has documents
@@ -1980,8 +1987,7 @@ export default function AgentReconciliationPage() {
                     const groupId = `group-${groupIndex}`;
 
                     for (let rowIdx = 0; rowIdx < rowsNeeded; rowIdx++) {
-                      const glEntry =
-                        group.glEntries && group.glEntries[rowIdx];
+                      const glEntry = group.glEntries?.[rowIdx];
                       const isFirstRow = rowIdx === 0;
 
                       rows.push(
@@ -1992,9 +1998,11 @@ export default function AgentReconciliationPage() {
                               ? `${getRowClass()} border-t-2 border-t-neutral-800`
                               : ""
                           } ${group.bankMatch && updatingMatches.has(group.bankMatch.bankIndex) ? "opacity-50" : ""} ${
-                            group.groupStyle === "approved" && 
-                            !matchesWithDocuments.has(group.bankIndex) && 
-                            !searchingDocumentsFor.has(group.bankIndex) ? "bg-amber-50/5 border-l-4 border-l-amber-400" : ""
+                            group.groupStyle === "approved" &&
+                            !matchesWithDocuments.has(group.bankIndex) &&
+                            !searchingDocumentsFor.has(group.bankIndex)
+                              ? "bg-amber-50/5 border-l-4 border-l-amber-400"
+                              : ""
                           }`}
                           onClick={() =>
                             group.bankMatch &&
@@ -2011,28 +2019,43 @@ export default function AgentReconciliationPage() {
                             {isFirstRow && (
                               <div className="flex items-center justify-center space-x-1">
                                 <span>
-                                  {group.bankIndex} 
+                                  {group.bankIndex}
                                   {/* Status with descriptive text */}
                                   {group.groupStyle === "approved" && (
-                                    <span className="text-green-400 text-xs ml-1" title="Approved by user">
+                                    <span
+                                      className="text-green-400 text-xs ml-1"
+                                      title="Approved by user"
+                                    >
                                       ✓ approved
                                     </span>
                                   )}
                                   {group.groupStyle === "high-confidence" && (
-                                    <span className="text-yellow-400 text-xs ml-1" title="High confidence match">
+                                    <span
+                                      className="text-yellow-400 text-xs ml-1"
+                                      title="High confidence match"
+                                    >
                                       ? high conf
                                     </span>
                                   )}
                                   {group.groupStyle === "low-confidence" && (
-                                    <span className="text-orange-400 text-xs ml-1" title="Low confidence match">
+                                    <span
+                                      className="text-orange-400 text-xs ml-1"
+                                      title="Low confidence match"
+                                    >
                                       ? low conf
                                     </span>
                                   )}
-                                  {!group.groupStyle || (group.groupStyle !== "approved" && group.groupStyle !== "high-confidence" && group.groupStyle !== "low-confidence") && (
-                                    <span className="text-neutral-400 text-xs ml-1" title="Pending review">
-                                      ○ pending
-                                    </span>
-                                  )}
+                                  {!group.groupStyle ||
+                                    (group.groupStyle !== "approved" &&
+                                      group.groupStyle !== "high-confidence" &&
+                                      group.groupStyle !== "low-confidence" && (
+                                        <span
+                                          className="text-neutral-400 text-xs ml-1"
+                                          title="Pending review"
+                                        >
+                                          ○ pending
+                                        </span>
+                                      ))}
                                 </span>
                                 {/* Show searching indicator */}
                                 {searchingDocumentsFor.has(group.bankIndex) && (

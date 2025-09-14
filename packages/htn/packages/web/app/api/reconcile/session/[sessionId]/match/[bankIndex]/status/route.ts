@@ -9,9 +9,15 @@ export async function POST(
     const body = await request.json();
     const { status } = body;
 
-    if (!status || !["approved", "rejected", "pending", "verified"].includes(status)) {
+    if (
+      !status ||
+      !["approved", "rejected", "pending", "verified"].includes(status)
+    ) {
       return NextResponse.json(
-        { error: "Invalid status. Must be one of: approved, rejected, pending, verified" },
+        {
+          error:
+            "Invalid status. Must be one of: approved, rejected, pending, verified",
+        },
         { status: 400 },
       );
     }

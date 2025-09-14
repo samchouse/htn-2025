@@ -3,7 +3,6 @@
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 
-
 interface UploadedDocument {
   file: File;
   id: string;
@@ -30,8 +29,6 @@ interface ProcessingProgress {
   current?: string;
 }
 
-
-
 export default function ReconciliationPage() {
   // Bulk upload state
   const [uploadedFiles, setUploadedFiles] = useState<UploadedDocument[]>([]);
@@ -42,10 +39,7 @@ export default function ReconciliationPage() {
     failed: 0,
   });
   const [showResults, setShowResults] = useState(false);
-  const [activeTab, setActiveTab] = useState<"bulk-upload">(
-    "bulk-upload",
-  );
-
+  const [activeTab, setActiveTab] = useState<"bulk-upload">("bulk-upload");
 
   // Bulk upload functions
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -246,247 +240,248 @@ export default function ReconciliationPage() {
           </div>
         </div>
 
-
         {/* Bulk Upload Content */}
         <div>
-            {/* Upload Area */}
-            <div className="bg-slate-800 rounded-2xl p-6 border border-slate-600 mb-6">
-              <div
-                {...getRootProps()}
-                className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-                  isDragActive
-                    ? "border-blue-400 bg-blue-900/20"
-                    : "border-slate-500 hover:border-slate-400"
-                }`}
-              >
-                <input {...getInputProps()} />
-                <div className="space-y-4">
-                  <div className="text-6xl">💻</div>
-                  <div>
-                    <p className="text-xl text-white font-medium">
-                      {isDragActive
-                        ? "Drop your invoices and receipts here"
-                        : "Upload all your invoices and receipts here"}
-                    </p>
-                    <p className="text-slate-400 mt-2">
-                      Drag & drop PDF or PNG files or click to select multiple files
-                    </p>
-                  </div>
+          {/* Upload Area */}
+          <div className="bg-slate-800 rounded-2xl p-6 border border-slate-600 mb-6">
+            <div
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+                isDragActive
+                  ? "border-blue-400 bg-blue-900/20"
+                  : "border-slate-500 hover:border-slate-400"
+              }`}
+            >
+              <input {...getInputProps()} />
+              <div className="space-y-4">
+                <div className="text-6xl">💻</div>
+                <div>
+                  <p className="text-xl text-white font-medium">
+                    {isDragActive
+                      ? "Drop your invoices and receipts here"
+                      : "Upload all your invoices and receipts here"}
+                  </p>
+                  <p className="text-slate-400 mt-2">
+                    Drag & drop PDF or PNG files or click to select multiple
+                    files
+                  </p>
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* File List */}
-            {uploadedFiles.length > 0 && (
-              <div className="bg-slate-800 rounded-2xl p-6 border border-slate-600 mb-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-bold text-white">
-                    Uploaded Files ({uploadedFiles.length})
-                  </h2>
-                  <div className="space-x-3">
-                    <button
-                      type="button"
-                      onClick={clearAll}
-                      disabled={isProcessingDocuments}
-                      className="px-4 py-2 text-slate-300 hover:text-white disabled:opacity-50"
-                    >
-                      Clear All
-                    </button>
-                    <button
-                      type="button"
-                      onClick={processDocuments}
-                      disabled={
-                        isProcessingDocuments || uploadedFiles.length === 0
-                      }
-                      className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {isProcessingDocuments
-                        ? "Processing..."
-                        : "Process All Documents"}
-                    </button>
-                  </div>
+          {/* File List */}
+          {uploadedFiles.length > 0 && (
+            <div className="bg-slate-800 rounded-2xl p-6 border border-slate-600 mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-white">
+                  Uploaded Files ({uploadedFiles.length})
+                </h2>
+                <div className="space-x-3">
+                  <button
+                    type="button"
+                    onClick={clearAll}
+                    disabled={isProcessingDocuments}
+                    className="px-4 py-2 text-slate-300 hover:text-white disabled:opacity-50"
+                  >
+                    Clear All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={processDocuments}
+                    disabled={
+                      isProcessingDocuments || uploadedFiles.length === 0
+                    }
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isProcessingDocuments
+                      ? "Processing..."
+                      : "Process All Documents"}
+                  </button>
                 </div>
+              </div>
 
-                <div className="space-y-3">
-                  {uploadedFiles.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between p-4 bg-slate-700 rounded-lg"
-                    >
-                      <div className="flex items-center space-x-4">
-                        <span className="text-2xl">📄</span>
-                        <div>
-                          <p className="text-white font-medium">
-                            {doc.file.name}
-                          </p>
-                          <p className="text-slate-400 text-sm">
-                            {formatFileSize(doc.file.size)}
-                          </p>
-                        </div>
+              <div className="space-y-3">
+                {uploadedFiles.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between p-4 bg-slate-700 rounded-lg"
+                  >
+                    <div className="flex items-center space-x-4">
+                      <span className="text-2xl">📄</span>
+                      <div>
+                        <p className="text-white font-medium">
+                          {doc.file.name}
+                        </p>
+                        <p className="text-slate-400 text-sm">
+                          {formatFileSize(doc.file.size)}
+                        </p>
                       </div>
-                      <div className="flex items-center space-x-4">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-lg">
-                            {getStatusIcon(doc.status)}
-                          </span>
-                          <span
-                            className={`font-medium ${getStatusColor(doc.status)}`}
-                          >
-                            {doc.status.charAt(0).toUpperCase() +
-                              doc.status.slice(1)}
-                          </span>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-lg">
+                          {getStatusIcon(doc.status)}
+                        </span>
+                        <span
+                          className={`font-medium ${getStatusColor(doc.status)}`}
+                        >
+                          {doc.status.charAt(0).toUpperCase() +
+                            doc.status.slice(1)}
+                        </span>
+                      </div>
+                      {doc.status === "pending" && (
+                        <button
+                          type="button"
+                          onClick={() => removeFile(doc.id)}
+                          className="text-red-400 hover:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Progress */}
+          {isProcessingDocuments && (
+            <div className="bg-slate-800 rounded-2xl p-6 border border-slate-600 mb-6">
+              <h3 className="text-xl font-bold text-white mb-4">
+                Processing Progress
+              </h3>
+              <div className="space-y-4">
+                <div className="flex justify-between text-white">
+                  <span>
+                    Progress: {progress.completed + progress.failed} /{" "}
+                    {progress.total}
+                  </span>
+                  <span>
+                    {progress.current && `Processing: ${progress.current}`}
+                  </span>
+                </div>
+                <div className="w-full bg-slate-700 rounded-full h-3">
+                  <div
+                    className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${((progress.completed + progress.failed) / progress.total) * 100}%`,
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-green-400">
+                    ✅ Completed: {progress.completed}
+                  </span>
+                  <span className="text-red-400">
+                    ❌ Failed: {progress.failed}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Results */}
+          {showResults && (
+            <div className="bg-slate-800 rounded-2xl p-6 border border-slate-600">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-white">
+                  Processing Results
+                </h3>
+                <button
+                  type="button"
+                  onClick={downloadResults}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors"
+                >
+                  Download Results
+                </button>
+              </div>
+
+              <div className="grid gap-4">
+                {uploadedFiles
+                  .filter((doc) => doc.status === "completed")
+                  .map((doc) => (
+                    <div key={doc.id} className="bg-slate-700 rounded-lg p-4">
+                      <h4 className="text-white font-medium mb-3">
+                        {doc.file.name}
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <span className="text-slate-400">Seller:</span>
+                          <p className="text-white">
+                            {doc.result?.extraction?.seller || "N/A"}
+                          </p>
                         </div>
-                        {doc.status === "pending" && (
-                          <button
-                            type="button"
-                            onClick={() => removeFile(doc.id)}
-                            className="text-red-400 hover:text-red-300"
-                          >
-                            Remove
-                          </button>
-                        )}
+                        <div>
+                          <span className="text-slate-400">Customer:</span>
+                          <p className="text-white">
+                            {doc.result?.extraction?.customer || "N/A"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Date:</span>
+                          <p className="text-white">
+                            {doc.result?.extraction?.date || "N/A"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Amount:</span>
+                          <p className="text-white">
+                            {doc.result?.extraction?.amount
+                              ? `$${doc.result.extraction.amount}`
+                              : "N/A"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Invoice #:</span>
+                          <p className="text-white">
+                            {doc.result?.extraction?.invoice_number || "N/A"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Description:</span>
+                          <p className="text-white">
+                            {doc.result?.extraction?.description || "N/A"}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   ))}
-                </div>
               </div>
-            )}
 
-            {/* Progress */}
-            {isProcessingDocuments && (
-              <div className="bg-slate-800 rounded-2xl p-6 border border-slate-600 mb-6">
-                <h3 className="text-xl font-bold text-white mb-4">
-                  Processing Progress
-                </h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between text-white">
-                    <span>
-                      Progress: {progress.completed + progress.failed} /{" "}
-                      {progress.total}
-                    </span>
-                    <span>
-                      {progress.current && `Processing: ${progress.current}`}
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-700 rounded-full h-3">
-                    <div
-                      className="bg-blue-600 h-3 rounded-full transition-all duration-300"
-                      style={{
-                        width: `${((progress.completed + progress.failed) / progress.total) * 100}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-green-400">
-                      ✅ Completed: {progress.completed}
-                    </span>
-                    <span className="text-red-400">
-                      ❌ Failed: {progress.failed}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Results */}
-            {showResults && (
-              <div className="bg-slate-800 rounded-2xl p-6 border border-slate-600">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-bold text-white">
-                    Processing Results
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={downloadResults}
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors"
-                  >
-                    Download Results
-                  </button>
-                </div>
-
-                <div className="grid gap-4">
-                  {uploadedFiles
-                    .filter((doc) => doc.status === "completed")
-                    .map((doc) => (
-                      <div key={doc.id} className="bg-slate-700 rounded-lg p-4">
-                        <h4 className="text-white font-medium mb-3">
-                          {doc.file.name}
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <span className="text-slate-400">Seller:</span>
-                            <p className="text-white">
-                              {doc.result?.extraction?.seller || "N/A"}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Customer:</span>
-                            <p className="text-white">
-                              {doc.result?.extraction?.customer || "N/A"}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Date:</span>
-                            <p className="text-white">
-                              {doc.result?.extraction?.date || "N/A"}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Amount:</span>
-                            <p className="text-white">
-                              {doc.result?.extraction?.amount
-                                ? `$${doc.result.extraction.amount}`
-                                : "N/A"}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Invoice #:</span>
-                            <p className="text-white">
-                              {doc.result?.extraction?.invoice_number || "N/A"}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Description:</span>
-                            <p className="text-white">
-                              {doc.result?.extraction?.description || "N/A"}
-                            </p>
-                          </div>
+              {uploadedFiles.filter((doc) => doc.status === "error").length >
+                0 && (
+                <div className="mt-6">
+                  <h4 className="text-red-400 font-medium mb-3">
+                    Failed Documents
+                  </h4>
+                  <div className="space-y-2">
+                    {uploadedFiles
+                      .filter((doc) => doc.status === "error")
+                      .map((doc) => (
+                        <div
+                          key={doc.id}
+                          className="bg-red-900/30 border border-red-600/50 rounded-lg p-3"
+                        >
+                          <p className="text-red-200 font-medium">
+                            {doc.file.name}
+                          </p>
+                          <p className="text-red-300 text-sm">{doc.error}</p>
                         </div>
-                      </div>
-                    ))}
-                </div>
-
-                {uploadedFiles.filter((doc) => doc.status === "error").length >
-                  0 && (
-                  <div className="mt-6">
-                    <h4 className="text-red-400 font-medium mb-3">
-                      Failed Documents
-                    </h4>
-                    <div className="space-y-2">
-                      {uploadedFiles
-                        .filter((doc) => doc.status === "error")
-                        .map((doc) => (
-                          <div
-                            key={doc.id}
-                            className="bg-red-900/30 border border-red-600/50 rounded-lg p-3"
-                          >
-                            <p className="text-red-200 font-medium">
-                              {doc.file.name}
-                            </p>
-                            <p className="text-red-300 text-sm">{doc.error}</p>
-                          </div>
-                        ))}
-                    </div>
+                      ))}
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
+          )}
 
-            {uploadedFiles.length === 0 && (
-              <div className="text-center text-slate-400 mt-16 text-lg">
-                Upload your invoices and receipts to get started with bulk reconciliation
-              </div>
-            )}
+          {uploadedFiles.length === 0 && (
+            <div className="text-center text-slate-400 mt-16 text-lg">
+              Upload your invoices and receipts to get started with bulk
+              reconciliation
+            </div>
+          )}
         </div>
       </div>
     </div>

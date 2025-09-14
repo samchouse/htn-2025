@@ -28,9 +28,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Stream the file content directly to the client
-    const contentType = response.headers.get("content-type") || "application/pdf";
-    const contentDisposition = response.headers.get("content-disposition") ||
-      `attachment; filename="${filePath.split('/').pop()}"`;
+    const contentType =
+      response.headers.get("content-type") || "application/pdf";
+    const contentDisposition =
+      response.headers.get("content-disposition") ||
+      `attachment; filename="${filePath.split("/").pop()}"`;
 
     return new Response(response.body, {
       status: 200,
