@@ -168,11 +168,7 @@
   "matches": [
     {
       "bank_index": 1,
-      "gl_indexes": [
-        0,
-        1,
-        2
-      ],
+      "gl_indexes": [0, 1, 2],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Honey Inc. E-Trans' on 01/01/2025 matches exactly with GL entries on the same date with the same amount of $1050. The descriptions indicate a transaction with Honey Inc., which matches the bank statement description.",
       "status": "pending",
@@ -183,11 +179,7 @@
     },
     {
       "bank_index": 2,
-      "gl_indexes": [
-        3,
-        4,
-        5
-      ],
+      "gl_indexes": [3, 4, 5],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Bee Inc. E-Trans' on 01/02/2025 matches exactly with GL entries on the same date with the same amount of $1100. The descriptions indicate a transaction with Bee Inc., matching the bank statement description.",
       "status": "pending",
@@ -198,9 +190,7 @@
     },
     {
       "bank_index": 3,
-      "gl_indexes": [
-        6
-      ],
+      "gl_indexes": [6],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Goodies Inc. E-Trans' on 01/07/2025 matches with a GL entry on the same date with the same amount of $2000. The description indicates a payment related to Goodies Inc., matching the bank statement description.",
       "status": "pending",
@@ -211,9 +201,7 @@
     },
     {
       "bank_index": 4,
-      "gl_indexes": [
-        7
-      ],
+      "gl_indexes": [7],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Baddies Wire' on 01/08/2025 matches with a GL entry on the same date with the same amount of $2000. The description indicates a payment related to Baddies Inc., matching the bank statement description.",
       "status": "pending",
@@ -224,9 +212,7 @@
     },
     {
       "bank_index": 5,
-      "gl_indexes": [
-        8
-      ],
+      "gl_indexes": [8],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Goodies Inc. E-Trans' on 01/09/2025 matches with a GL entry on the same date with the same amount of $3000. The description indicates a payment related to Goodies Inc., matching the bank statement description.",
       "status": "pending",
@@ -237,10 +223,7 @@
     },
     {
       "bank_index": 6,
-      "gl_indexes": [
-        10,
-        11
-      ],
+      "gl_indexes": [10, 11],
       "confidence": 0.5,
       "reasoning": "The bank entry for 'Kings Inc. E-Trans' on 01/13/2025 matches with GL entries on 01/12/2025 for the same amount of $1000. The descriptions indicate a transaction with Kings Inc., but there is a 1-day difference, so this is a medium confidence match.",
       "status": "pending",
@@ -251,11 +234,7 @@
     },
     {
       "bank_index": 7,
-      "gl_indexes": [
-        12,
-        13,
-        14
-      ],
+      "gl_indexes": [12, 13, 14],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'K-Foods. E-Trans' on 01/13/2025 matches with GL entries on the same date with the total amount of $108. Although the bank entry shows -$100, the GL entries show a transaction involving accounts payable and cash that clears a payment for $108, indicating a possible fee or adjustment not reflected in the bank statement.",
       "status": "pending",

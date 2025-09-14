@@ -168,11 +168,7 @@
   "matches": [
     {
       "bank_index": 1,
-      "gl_indexes": [
-        0,
-        1,
-        2
-      ],
+      "gl_indexes": [0, 1, 2],
       "confidence": 0.9,
       "reasoning": "The bank entry for Honey Inc. on 01/01/2025 matches perfectly with the GL entries on the same date. The amounts and descriptions align well, indicating a complete transaction cycle including accounts receivable and cash.",
       "status": "pending",
@@ -183,11 +179,7 @@
     },
     {
       "bank_index": 2,
-      "gl_indexes": [
-        3,
-        4,
-        5
-      ],
+      "gl_indexes": [3, 4, 5],
       "confidence": 0.9,
       "reasoning": "The bank entry for Bee Inc. on 01/02/2025 matches perfectly with the GL entries on the same date. The amounts and descriptions align well, indicating a complete transaction cycle including accounts receivable and cash.",
       "status": "pending",
@@ -198,9 +190,7 @@
     },
     {
       "bank_index": 3,
-      "gl_indexes": [
-        6
-      ],
+      "gl_indexes": [6],
       "confidence": 0.9,
       "reasoning": "The bank entry for Goodies Inc. on 01/07/2025 matches perfectly with the GL entry on the same date. The amount and description align well, indicating a partial payment for an order.",
       "status": "pending",
@@ -211,9 +201,7 @@
     },
     {
       "bank_index": 4,
-      "gl_indexes": [
-        7
-      ],
+      "gl_indexes": [7],
       "confidence": 0.9,
       "reasoning": "The bank entry for Baddies Inc. on 01/08/2025 matches perfectly with the GL entry on the same date. The amount and description align well, indicating a complete payment for an order.",
       "status": "pending",
@@ -224,9 +212,7 @@
     },
     {
       "bank_index": 5,
-      "gl_indexes": [
-        8
-      ],
+      "gl_indexes": [8],
       "confidence": 0.9,
       "reasoning": "The bank entry for Goodies Inc. on 01/09/2025 matches perfectly with the GL entry on the same date. The amount and description align well, indicating the final payment for a previous order.",
       "status": "pending",
@@ -237,10 +223,7 @@
     },
     {
       "bank_index": 6,
-      "gl_indexes": [
-        10,
-        11
-      ],
+      "gl_indexes": [10, 11],
       "confidence": 0.5,
       "reasoning": "The bank entry for Kings Inc. on 01/13/2025 matches with GL entries on 01/12/2025. The amounts match and the descriptions are similar, however, the dates are 1 day apart, suggesting a payment processing delay.",
       "status": "pending",
@@ -251,11 +234,7 @@
     },
     {
       "bank_index": 7,
-      "gl_indexes": [
-        12,
-        13,
-        14
-      ],
+      "gl_indexes": [12, 13, 14],
       "confidence": 0.9,
       "reasoning": "The bank entry for K-Foods on 01/13/2025 matches perfectly with the GL entries on the same date for a team lunch payment. The amounts and descriptions align well.",
       "status": "pending",

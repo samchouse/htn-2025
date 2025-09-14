@@ -147,11 +147,7 @@
   "matches": [
     {
       "bank_index": 6,
-      "gl_indexes": [
-        9,
-        10,
-        11
-      ],
+      "gl_indexes": [9, 10, 11],
       "confidence": 0.5,
       "reasoning": "The bank entry for Kings Inc. on 01/13/2025 matches GL entries 9, 10, and 11 in amount and description. The dates are within an acceptable range considering processing delays, indicating a medium confidence match.",
       "status": "pending",

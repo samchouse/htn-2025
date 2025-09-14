@@ -168,11 +168,7 @@
   "matches": [
     {
       "bank_index": 1,
-      "gl_indexes": [
-        0,
-        1,
-        2
-      ],
+      "gl_indexes": [0, 1, 2],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Honey Inc. E-Trans' on 01/01/2025 for $1050 matches perfectly with GL entries on the same date for 'Honey Inc.' with the same amount. The GL entries represent the transaction lifecycle: debit to Account Receivable, credit to clear AR, and debit to Cash.",
       "status": "pending",
@@ -183,11 +179,7 @@
     },
     {
       "bank_index": 2,
-      "gl_indexes": [
-        3,
-        4,
-        5
-      ],
+      "gl_indexes": [3, 4, 5],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Bee Inc. E-Trans' on 01/02/2025 for $1100 matches perfectly with GL entries on the same date for 'Bee Inc.' with the same amount. The GL entries represent the transaction lifecycle: debit to Account Receivable, credit to clear AR, and debit to Cash.",
       "status": "pending",
@@ -198,9 +190,7 @@
     },
     {
       "bank_index": 3,
-      "gl_indexes": [
-        6
-      ],
+      "gl_indexes": [6],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Goodies Inc. E-Trans' on 01/07/2025 for $2000 matches perfectly with the GL entry on the same date for 'Goodies Inc.' with the same amount. The GL entry represents a partial payment for an invoice.",
       "status": "pending",
@@ -211,9 +201,7 @@
     },
     {
       "bank_index": 4,
-      "gl_indexes": [
-        7
-      ],
+      "gl_indexes": [7],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Baddies Wire' on 01/08/2025 for $2000 matches perfectly with the GL entry on the same date for 'Baddies Inc.' with the same amount. The GL entry represents a payment for an invoice.",
       "status": "pending",
@@ -224,9 +212,7 @@
     },
     {
       "bank_index": 5,
-      "gl_indexes": [
-        8
-      ],
+      "gl_indexes": [8],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Goodies Inc. E-Trans' on 01/09/2025 for $3000 matches perfectly with the GL entry on the same date for 'Goodies Inc.' with the same amount. The GL entry represents the remaining payment for an invoice.",
       "status": "pending",
@@ -237,10 +223,7 @@
     },
     {
       "bank_index": 6,
-      "gl_indexes": [
-        10,
-        11
-      ],
+      "gl_indexes": [10, 11],
       "confidence": 0.6,
       "reasoning": "The bank entry for 'Kings Inc. E-Trans' on 01/13/2025 for $1000 matches with GL entries on 01/12/2025 for 'Kings Inc.' with the same amount. The GL entries represent the transaction lifecycle: debit to Cash and credit to clear AR. The date discrepancy of 1 day suggests a payment processing delay, hence a medium confidence match.",
       "status": "pending",
@@ -251,11 +234,7 @@
     },
     {
       "bank_index": 7,
-      "gl_indexes": [
-        12,
-        13,
-        14
-      ],
+      "gl_indexes": [12, 13, 14],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'K-Foods. E-Trans' on 01/13/2025 for -$100 matches with GL entries on the same date for a team lunch payment. The GL entries represent the transaction lifecycle: debit to Accounts Payable, credit to clear AP, and credit to Cash. The amount and date match perfectly.",
       "status": "pending",

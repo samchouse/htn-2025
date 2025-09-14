@@ -179,11 +179,7 @@
     },
     {
       "bank_index": 1,
-      "gl_indexes": [
-        0,
-        1,
-        2
-      ],
+      "gl_indexes": [0, 1, 2],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Honey Inc. E-Trans' on 01/01/2025 for $1050 matches GL entries 0, 1, and 2. The amounts match exactly, the date is the same, and the descriptions indicate a payment from Honey Inc.",
       "status": "pending",
@@ -194,11 +190,7 @@
     },
     {
       "bank_index": 2,
-      "gl_indexes": [
-        3,
-        4,
-        5
-      ],
+      "gl_indexes": [3, 4, 5],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Bee Inc. E-Trans' on 01/02/2025 for $1100 matches GL entries 3, 4, and 5. The amounts match exactly, the date is the same, and the descriptions indicate a payment from Bee Inc.",
       "status": "pending",
@@ -209,9 +201,7 @@
     },
     {
       "bank_index": 3,
-      "gl_indexes": [
-        6
-      ],
+      "gl_indexes": [6],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Goodies Inc. E-Trans' on 01/07/2025 for $2000 matches GL entry 6. The amount matches exactly, the date is the same, and the description indicates a partial payment from Goodies Inc.",
       "status": "pending",
@@ -222,9 +212,7 @@
     },
     {
       "bank_index": 4,
-      "gl_indexes": [
-        7
-      ],
+      "gl_indexes": [7],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Baddies Wire' on 01/08/2025 for $2000 matches GL entry 7. The amount matches exactly, the date is the same, and the description indicates a payment from Baddies Inc.",
       "status": "pending",
@@ -235,9 +223,7 @@
     },
     {
       "bank_index": 5,
-      "gl_indexes": [
-        8
-      ],
+      "gl_indexes": [8],
       "confidence": 0.9,
       "reasoning": "The bank entry for 'Goodies Inc. E-Trans' on 01/09/2025 for $3000 matches GL entry 8. The amount matches exactly, the date is the same, and the description indicates the remaining payment from Goodies Inc.",
       "status": "pending",
@@ -248,10 +234,7 @@
     },
     {
       "bank_index": 6,
-      "gl_indexes": [
-        10,
-        11
-      ],
+      "gl_indexes": [10, 11],
       "confidence": 0.6,
       "reasoning": "The bank entry for 'Kings Inc. E-Trans' on 01/13/2025 for $1000 matches GL entries 10 and 11. The amount matches, the date is within 1 day, and the descriptions indicate a payment from Kings Inc. This is a low confidence match due to the temporal discrepancy.",
       "status": "pending",
@@ -262,11 +245,7 @@
     },
     {
       "bank_index": 7,
-      "gl_indexes": [
-        12,
-        13,
-        14
-      ],
+      "gl_indexes": [12, 13, 14],
       "confidence": 0.5,
       "reasoning": "The bank entry for 'K-Foods. E-Trans' on 01/13/2025 for -$100 matches GL entries 12, 13, and 14. The amounts are related to a payment for team lunch, with a slight discrepancy in the total amount due to potential tax or fee adjustments. The date matches, but the description similarity is weak, resulting in a medium confidence match.",
       "status": "pending",

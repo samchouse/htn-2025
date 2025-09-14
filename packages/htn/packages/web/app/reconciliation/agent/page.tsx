@@ -463,10 +463,14 @@ export default function AgentReconciliationPage() {
       if (status === "approved") {
         try {
           await fetchMatchingDocuments(bankIndex);
-          setAgentMessage(`Successfully approved match for Bank #${bankIndex} and found matching documents`);
+          setAgentMessage(
+            `Successfully approved match for Bank #${bankIndex} and found matching documents`,
+          );
         } catch (docError) {
           console.warn("Document matching failed after approval:", docError);
-          setAgentMessage(`Successfully ${status} match for Bank #${bankIndex}, but document matching failed`);
+          setAgentMessage(
+            `Successfully ${status} match for Bank #${bankIndex}, but document matching failed`,
+          );
         }
       } else {
         setAgentMessage(`Successfully ${status} match for Bank #${bankIndex}`);
