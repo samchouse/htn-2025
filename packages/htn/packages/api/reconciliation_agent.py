@@ -261,20 +261,7 @@ Be specific and actionable in your response."""
         """Agent performs intelligent initial matching based on its analysis"""
 
         # Create a detailed prompt for the AI to analyze and match entries
-        bank_data_str = json.dumps(
-            session.bank_data[:10], indent=2
-        )  # Show first 10 entries
-        gl_data_str = json.dumps(
-            session.gl_data[:10], indent=2
-        )  # Show first 10 entries
-
-        prompt = f"""You are a financial reconciliation expert. Analyze the following bank statement and general ledger data to find matches.
-
-Bank Statement Entries (showing first 10):
-{bank_data_str}
-
-General Ledger Entries (showing first 10):
-{gl_data_str}
+        prompt = """You are a financial reconciliation expert. Analyze the following bank statement and general ledger data to find matches.
 
 Your task is to match bank statement entries with general ledger entries. For each bank entry, find the best matching GL entries - note that a single bank transaction may correspond to multiple GL entries (debits/credits representing the transaction lifecycle).
 
@@ -289,6 +276,8 @@ IMPORTANT: Payment Processing Delays
 - A bank payment on Day 3 might correspond to a GL entry recorded on Day 1
 - When amounts match and descriptions are similar, but dates are 1-3 days apart, provide a LOW CONFIDENCE match (0.3-0.6)
 - This helps users identify potential matches that need manual review rather than leaving them completely unmatched
+- GL entries may also be split across dates for a single transaction, eg. first entry is $1000 on the 1st for account receivable, second entry is $1000 on the 3rd for cash, but the bank payment is $1000 on the 3rd for account payable.
+    - IN THIS CASE, ALL 3 ENTRIES SHOULD BE LINKED TOGETHER, EVEN THOUGH THE FIRST GL ENTRY IS 2 DAYS EARLY
 
 For each bank entry, provide:
 - bank_index: the index of the bank entry (0-based)
@@ -318,13 +307,19 @@ Return your analysis as a JSON array of match objects."""
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a financial reconciliation expert. Analyze bank and GL data to find matches. Pay special attention to temporal discrepancies where bank transactions may appear 1-3 days after GL entries. Provide low confidence matches for these cases rather than leaving them unmatched. Return structured JSON with your analysis.",
-                    },
                     {"role": "user", "content": prompt},
+                    {
+                        "role": "user",
+                        "content": "Bank Statement Entries: "
+                        + json.dumps(session.bank_data),
+                    },
+                    {
+                        "role": "user",
+                        "content": "General Ledger Entries: "
+                        + json.dumps(session.gl_data),
+                    },
                 ],
-                temperature=0.1,
+                temperature=0.5,
             )
 
             content = response.choices[0].message.content
@@ -473,39 +468,6 @@ Return your analysis as a JSON array of match objects."""
             # Default action
             return f"Agent decided: {thought.action}"
 
-    def _extract_amount(self, entry: dict) -> float | None:
-        """Extract amount from entry, trying common field names"""
-        amount_fields = ["amount", "value", "total", "debit", "credit", "balance"]
-
-        for field in amount_fields:
-            if field in entry and entry[field] is not None:
-                try:
-                    # Handle string values with currency symbols
-                    value = str(entry[field]).replace("$", "").replace(",", "").strip()
-                    return float(value)
-                except (ValueError, TypeError):
-                    continue
-
-        # Try to find any numeric field
-        for value in entry.values():
-            if isinstance(value, (int, float)) and value != 0:
-                return float(value)
-
-        return None
-
-    def _extract_date(self, entry: dict) -> datetime | None:
-        """Extract date from entry, trying common field names"""
-        date_fields = ["date", "transaction_date", "posting_date", "value_date"]
-
-        for field in date_fields:
-            if field in entry and entry[field] is not None:
-                try:
-                    return pd.to_datetime(entry[field]).to_pydatetime()
-                except (ValueError, TypeError):
-                    continue
-
-        return None
-
     def _save_session(self, session: ReconciliationSession) -> None:
         """Save session to file"""
         session_file = self.data_dir / f"{session.session_id}.json"
@@ -517,17 +479,17 @@ Return your analysis as a JSON array of match objects."""
     def get_session(self, session_id: str) -> ReconciliationSession | None:
         """Retrieve session by ID"""
         print(f"🔍 Getting session: {session_id}")
-        
+
         # First check in-memory sessions
         if session_id in self.sessions:
             print(f"✅ Found session {session_id} in memory")
             return self.sessions[session_id]
-        
+
         # If not in memory, try to load from file
         try:
             session_file = self.data_dir / f"{session_id}.json"
             print(f"📁 Looking for session file: {session_file}")
-            
+
             if not session_file.exists():
                 # Try the old naming convention with double prefix
                 old_session_file = self.data_dir / f"session_{session_id}.json"
@@ -535,14 +497,16 @@ Return your analysis as a JSON array of match objects."""
                 if old_session_file.exists():
                     session_file = old_session_file
                     print(f"✅ Found session file with old naming: {session_file}")
-            
+
             if session_file.exists():
                 print(f"📖 Loading session from file: {session_file}")
                 with open(session_file, encoding="utf-8") as f:
                     session_data = json.load(f)
-                
-                print(f"📊 Session data loaded: {len(session_data.get('bank_matches', []))} matches")
-                
+
+                print(
+                    f"📊 Session data loaded: {len(session_data.get('bank_matches', []))} matches"
+                )
+
                 # Reconstruct the session object from file data
                 session = ReconciliationSession(**session_data)
                 # Store it in memory for future access
@@ -554,7 +518,7 @@ Return your analysis as a JSON array of match objects."""
         except Exception as e:
             print(f"❌ Error loading session {session_id} from file: {e}")
             logger.warning(f"Error loading session {session_id} from file: {e}")
-        
+
         print(f"❌ Session {session_id} not found")
         return None
 
@@ -601,8 +565,6 @@ Return your analysis as a JSON array of match objects."""
             return []
 
         bank_entry = session.bank_data[bank_index]
-        bank_amount = self._extract_amount(bank_entry)
-        bank_date = self._extract_date(bank_entry)
 
         matching_docs = []
 
@@ -611,52 +573,75 @@ Return your analysis as a JSON array of match objects."""
         if not meta_dir.exists():
             return []
 
+        matches = []
+        for match in session.matches:
+            matches.append(
+                {
+                    "bank_transaction": session.bank_data[match.bank_index],
+                    "gl_entries": [session.gl_data[i] for i in match.gl_indexes],
+                    "confidence": match.confidence,
+                }
+            )
+
         for doc_file in meta_dir.glob("*.json"):
             try:
                 with open(doc_file, encoding="utf-8") as f:
                     doc_data = json.load(f)
 
+                class ResponseOutput(BaseModel):
+                    confidence: float
+                    reasoning: str
+
+                response = self.client.responses.parse(
+                    model="gpt-4o",
+                    input=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "input_text",
+                                    "text": """Rate the document relevance based on the target bank transaction and all the matches.
+Keep in mind that bank transactions often appear 1-3 days after GL entries are recorded, and there might be slight clerical errors (3 for 8, 0 for 8, etc).
+Also consider that amounts might be split across multiple GL entries and/or bank deposits but grouped under 1 invoice/receipt.
+
+Confidence is based on:
+1. Company name: they should be very similar, allowing for minor typos (eg. Kings vs Kingz), but not completely different names (eg. Kings vs Queens).
+    - If the company name is too different, that means that this is not a match and should return a score of 0.2.
+2. Date: should be within 7 days, allowing for payment processing delays. If not, the score must be 0.8 or below.
+3. Amount: should be very close, allowing for minor clerical errors (eg. 3 for 8, 0 for 8, etc). If the amounts are very different, the score must be 0.3 or below.
+    - Split transactions are common, so if the amount is not exactly the same but the company name and date are very close, then you should check if there are other transactions in the matches that could add up to the bank amount and invoice amount.
+
+Return a confidence score from 0 to 1, where 1 is a perfect match and 0 is not relevant at all.
+Explain the reasoning behind why you chose this file over others, unless the other file is obviously irrelevant. Capture the important information, MAX 2 SENTENCES.
+""",
+                                },
+                                {
+                                    "type": "input_text",
+                                    "text": f"Highlighted bank transaction:\nThis is the bank entry that you are trying to find a matching document for: {json.dumps(bank_entry)}",
+                                },
+                                {
+                                    "type": "input_text",
+                                    "text": f"Document metadata:\nThis is the extracted metadata of the file being considered: {json.dumps(doc_data)}",
+                                },
+                                {
+                                    "type": "input_text",
+                                    "text": f"All matches:\nThis serves as context for identifying split matches. THIS IS NOT WHAT YOU SHOULD BE COMPARING THE DOCUMENT TO IF IT DOES NOT MATCH THE HIGHLIGHTED TARGET AT ALL. {json.dumps(matches)}",
+                                },
+                            ],
+                        },
+                    ],
+                    text_format=ResponseOutput,
+                )
+
                 extraction = doc_data.get("extraction", {})
-                doc_amount = extraction.get("amount", 0)
-                doc_date_str = extraction.get("date", "")
-
-                # Check amount match (exact or very close)
-                amount_match = False
-                if bank_amount and doc_amount and abs(bank_amount - doc_amount) < 0.01:
-                    amount_match = True
-
-                # Check date match (within 7 days)
-                date_match = False
-                if bank_date and doc_date_str:
-                    try:
-                        doc_date = pd.to_datetime(doc_date_str).to_pydatetime()
-                        if abs((bank_date - doc_date).days) <= 7:
-                            date_match = True
-                    except Exception:
-                        pass
-
-                # Calculate confidence based on matches
-                confidence = 0.0
-                match_reasons = []
-
-                if amount_match and date_match:
-                    confidence = 0.95
-                    match_reasons = ["amount", "date"]
-                elif amount_match:
-                    confidence = 0.8
-                    match_reasons = ["amount"]
-                elif date_match:
-                    confidence = 0.4
-                    match_reasons = ["date"]
-
-                if confidence > 0:
+                if response.output_parsed.confidence > 0.7:
                     matching_docs.append(
                         {
                             "file_path": str(doc_file),
                             "filename": doc_data.get("original_filename", ""),
                             "extraction": extraction,
-                            "match_reasons": match_reasons,
-                            "confidence": confidence,
+                            "confidence": response.output_parsed.confidence,
+                            "processing_notes": response.output_parsed.reasoning,
                         }
                     )
 
@@ -717,13 +702,15 @@ Return your analysis as a JSON array of match objects."""
         self, session_id: str, bank_index: int, gl_indexes: list[int], explanation: str
     ) -> dict[str, Any]:
         """Create a manual match between bank and GL entries"""
-        print(f"🔧 Creating manual match for session {session_id}: Bank {bank_index} -> GL {gl_indexes}")
-        
+        print(
+            f"🔧 Creating manual match for session {session_id}: Bank {bank_index} -> GL {gl_indexes}"
+        )
+
         try:
             # Load session data - try both naming conventions for backward compatibility
             session_file = self.data_dir / f"{session_id}.json"
             print(f"📁 Looking for session file: {session_file}")
-            
+
             if not session_file.exists():
                 # Try the old naming convention with double prefix
                 old_session_file = self.data_dir / f"session_{session_id}.json"
@@ -732,14 +719,18 @@ Return your analysis as a JSON array of match objects."""
                     session_file = old_session_file
                     print(f"✅ Found session file with old naming: {session_file}")
                 else:
-                    print(f"❌ Session file not found: {session_file} or {old_session_file}")
+                    print(
+                        f"❌ Session file not found: {session_file} or {old_session_file}"
+                    )
                     raise ValueError(f"Session {session_id} not found")
 
             print(f"📖 Loading session from file: {session_file}")
             with open(session_file, encoding="utf-8") as f:
                 session_data = json.load(f)
-            
-            print(f"📊 Session data loaded: {len(session_data.get('bank_matches', []))} existing matches")
+
+            print(
+                f"📊 Session data loaded: {len(session_data.get('bank_matches', []))} existing matches"
+            )
 
             # Check if manual match already exists
             existing_match = next(
@@ -784,14 +775,18 @@ Return your analysis as a JSON array of match objects."""
 
             # Update in-memory session if it exists
             if session_id in self.sessions:
-                print(f"🔄 Updating in-memory session {session_id} with new manual match")
+                print(
+                    f"🔄 Updating in-memory session {session_id} with new manual match"
+                )
                 # Ensure the session_data has the correct structure for ReconciliationSession
                 if "bank_matches" in session_data and "matches" not in session_data:
                     session_data["matches"] = session_data["bank_matches"]
                 # Reload the session from file to ensure consistency
                 updated_session = ReconciliationSession(**session_data)
                 self.sessions[session_id] = updated_session
-                print(f"✅ In-memory session {session_id} updated with {len(updated_session.matches)} matches")
+                print(
+                    f"✅ In-memory session {session_id} updated with {len(updated_session.matches)} matches"
+                )
 
             logger.info(
                 f"Created manual match for session {session_id}: Bank #{bank_index} -> GL {gl_indexes}"
@@ -803,38 +798,44 @@ Return your analysis as a JSON array of match objects."""
             logger.error(f"Error creating manual match: {str(e)}")
             raise e
 
-    def save_session(self, session_id: str, session_data: dict, change_description: str) -> dict[str, Any]:
+    def save_session(
+        self, session_id: str, session_data: dict, change_description: str
+    ) -> dict[str, Any]:
         """Save the entire session data with change description"""
         print(f"💾 Saving session {session_id} with change: {change_description}")
-        
+
         try:
             # Update session metadata
             session_data["last_updated"] = datetime.now().isoformat()
             session_data["change_description"] = change_description
-            
+
             # Clean NaN values before saving
             cleaned_session_data = self._clean_nan_values(session_data)
-            
+
             # Save to file
             session_file = self.data_dir / f"{session_id}.json"
             with open(session_file, "w", encoding="utf-8") as f:
                 json.dump(cleaned_session_data, f, indent=2, ensure_ascii=False)
-            
+
             # Update in-memory session if it exists
             if session_id in self.sessions:
                 print(f"🔄 Updating in-memory session {session_id}")
                 updated_session = ReconciliationSession(**cleaned_session_data)
                 self.sessions[session_id] = updated_session
-                print(f"✅ In-memory session {session_id} updated with {len(updated_session.matches)} matches")
-            
-            logger.info(f"Saved session {session_id} with {len(session_data.get('bank_matches', []))} matches")
-            
+                print(
+                    f"✅ In-memory session {session_id} updated with {len(updated_session.matches)} matches"
+                )
+
+            logger.info(
+                f"Saved session {session_id} with {len(session_data.get('bank_matches', []))} matches"
+            )
+
             return {
                 "session_id": session_id,
                 "matches_count": len(session_data.get("bank_matches", [])),
-                "saved_at": session_data["last_updated"]
+                "saved_at": session_data["last_updated"],
             }
-            
+
         except Exception as e:
             logger.error(f"Error saving session: {str(e)}")
             raise e

@@ -81,12 +81,17 @@ export default function AgentReconciliationPage() {
   const [showDocuments, setShowDocuments] = useState(false);
 
   // Helper function to save session to backend
-  const saveSessionToBackend = async (sessionId: string, changeDescription: string) => {
+  const saveSessionToBackend = async (
+    sessionId: string,
+    changeDescription: string,
+  ) => {
     if (!currentSession) return;
-    
+
     try {
-      console.log(`💾 Saving session ${sessionId} with change: ${changeDescription}`);
-      
+      console.log(
+        `💾 Saving session ${sessionId} with change: ${changeDescription}`,
+      );
+
       const response = await fetch(`/api/reconcile/session/${sessionId}/save`, {
         method: "POST",
         headers: {
@@ -115,9 +120,13 @@ export default function AgentReconciliationPage() {
   };
 
   // Helper function to add a manual match to local session state
-  const addManualMatchToSession = (bankIndex: number, glIndexes: number[], explanation: string) => {
+  const addManualMatchToSession = (
+    bankIndex: number,
+    glIndexes: number[],
+    explanation: string,
+  ) => {
     if (!currentSession) return;
-    
+
     const newMatch: BankMatchData = {
       bank_index: bankIndex,
       gl_indexes: glIndexes,
@@ -132,29 +141,29 @@ export default function AgentReconciliationPage() {
 
     setCurrentSession((prev) => {
       if (!prev) return prev;
-      
+
       return {
         ...prev,
         matches: [...prev.matches, newMatch],
       };
     });
-    
+
     return newMatch;
   };
 
   // Helper function to reject a match in local session state
   const rejectMatchInSession = (bankIndex: number, reason: string) => {
     if (!currentSession) return;
-    
+
     setCurrentSession((prev) => {
       if (!prev) return prev;
-      
+
       return {
         ...prev,
-        matches: prev.matches.map((match) => 
-          match.bank_index === bankIndex 
+        matches: prev.matches.map((match) =>
+          match.bank_index === bankIndex
             ? { ...match, status: "rejected" as const, user_feedback: reason }
-            : match
+            : match,
         ),
       };
     });
@@ -168,7 +177,6 @@ export default function AgentReconciliationPage() {
       const response = await fetch(`/api/reconcile/session/${sessionId}`);
       if (response.ok) {
         const sessionData = await response.json();
-
 
         setCurrentSession((prev) => {
           return prev
@@ -415,7 +423,11 @@ export default function AgentReconciliationPage() {
           match.bank_index === bankIndex
             ? {
                 ...match,
-                status: status as "pending" | "approved" | "rejected" | "verified",
+                status: status as
+                  | "pending"
+                  | "approved"
+                  | "rejected"
+                  | "verified",
               }
             : match,
         ),
@@ -425,7 +437,7 @@ export default function AgentReconciliationPage() {
 
       // 2. Save to backend
       const changeDescription = `Match status updated: Bank #${bankIndex} -> ${status}`;
-      
+
       const response = await fetch(`/api/reconcile/session/${sessionId}/save`, {
         method: "POST",
         headers: {
@@ -447,21 +459,28 @@ export default function AgentReconciliationPage() {
       const result = await response.json();
       console.log("✅ Session saved successfully:", result);
 
-      // 3. Update UI state
-      setAgentMessage(
-        `Successfully ${status} match for Bank #${bankIndex}`,
-      );
+      // 3. If match was approved, trigger document matching
+      if (status === "approved") {
+        try {
+          await fetchMatchingDocuments(bankIndex);
+          setAgentMessage(`Successfully approved match for Bank #${bankIndex} and found matching documents`);
+        } catch (docError) {
+          console.warn("Document matching failed after approval:", docError);
+          setAgentMessage(`Successfully ${status} match for Bank #${bankIndex}, but document matching failed`);
+        }
+      } else {
+        setAgentMessage(`Successfully ${status} match for Bank #${bankIndex}`);
+      }
 
       // Close the modal
       setShowMatchModal(false);
       setSelectedMatch(null);
-      
     } catch (error) {
       console.error("❌ Match status update error:", error);
       setAgentMessage(
         `Error updating match status: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
-      
+
       // Revert the local state on error
       if (currentSession) {
         setCurrentSession(currentSession);
@@ -478,7 +497,7 @@ export default function AgentReconciliationPage() {
     setIsLoadingDocuments(true);
     try {
       const response = await fetch(
-        `/api/reconcile/session/${sessionId}/match/${bankIndex}/documents`
+        `/api/reconcile/session/${sessionId}/match/${bankIndex}/documents`,
       );
 
       if (!response.ok) {
@@ -491,7 +510,7 @@ export default function AgentReconciliationPage() {
     } catch (error) {
       console.error("Error fetching matching documents:", error);
       setAgentMessage(
-        `Error fetching documents: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Error fetching documents: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     } finally {
       setIsLoadingDocuments(false);
@@ -502,21 +521,24 @@ export default function AgentReconciliationPage() {
   const downloadDocument = async (doc: any) => {
     try {
       // Extract the filename from the file path
-      const filename = doc.filename || doc.file_path?.split('/').pop() || 'document.pdf';
+      const filename =
+        doc.filename || doc.file_path?.split("/").pop() || "document.pdf";
 
       // Get the PDF file path by removing .json extension if present
       let pdfPath = doc.file_path;
-      if (pdfPath?.endsWith('.json')) {
-        pdfPath = pdfPath.replace('.json', '');
+      if (pdfPath?.endsWith(".json")) {
+        pdfPath = pdfPath.replace(".json", "");
       }
 
       // Remove 'data/' prefix if present since the API expects relative to data directory
-      if (pdfPath?.startsWith('data/')) {
+      if (pdfPath?.startsWith("data/")) {
         pdfPath = pdfPath.substring(5); // Remove 'data/' prefix
       }
 
       // Create a download endpoint that serves the PDF from the Python API
-      const response = await fetch(`/api/download-document?path=${encodeURIComponent(pdfPath)}`);
+      const response = await fetch(
+        `/api/download-document?path=${encodeURIComponent(pdfPath)}`,
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -529,7 +551,7 @@ export default function AgentReconciliationPage() {
       const url = window.URL.createObjectURL(blob);
 
       // Create a temporary anchor element and trigger download
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = filename;
       document.body.appendChild(a);
@@ -538,11 +560,10 @@ export default function AgentReconciliationPage() {
       // Clean up
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-
     } catch (error) {
-      console.error('Error downloading document:', error);
+      console.error("Error downloading document:", error);
       setAgentMessage(
-        `Error downloading document: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Error downloading document: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
   };
@@ -620,17 +641,17 @@ export default function AgentReconciliationPage() {
   const selectGlEntry = (glIndex: number) => {
     if (manualMatchMode && selectedBankEntry !== null) {
       setSelectedGlEntries((prev) => {
-        const newEntries = prev.includes(glIndex) 
+        const newEntries = prev.includes(glIndex)
           ? prev.filter((index) => index !== glIndex)
           : [...prev, glIndex];
-        
+
         console.log("🔍 GL entry selection:", {
           glIndex,
           selectedBankEntry,
           prevEntries: prev,
-          newEntries: newEntries
+          newEntries: newEntries,
         });
-        
+
         return newEntries;
       });
     }
@@ -654,19 +675,19 @@ export default function AgentReconciliationPage() {
     }
 
     setIsCreatingManualMatch(true);
-    
+
     // Store the original session state for potential reversion
     const originalSession = currentSession;
-    
+
     try {
       // 1. Create the new match
       console.log("🔍 Manual match creation debug:", {
         selectedBankEntry,
         selectedGlEntries,
         selectedGlEntriesLength: selectedGlEntries.length,
-        explanationText
+        explanationText,
       });
-      
+
       const newMatch: BankMatchData = {
         bank_index: selectedBankEntry,
         gl_indexes: selectedGlEntries,
@@ -681,14 +702,14 @@ export default function AgentReconciliationPage() {
 
       // 2. Save to backend first (before updating local state)
       const changeDescription = `Manual match created: Bank #${selectedBankEntry} -> GL [${selectedGlEntries.join(", ")}] - ${explanationText}`;
-      
+
       const updatedSession = {
         ...currentSession,
         matches: [...currentSession.matches, newMatch],
       };
 
       console.log("🔍 Before save - matches", updatedSession.matches);
-      
+
       const response = await fetch(`/api/reconcile/session/${sessionId}/save`, {
         method: "POST",
         headers: {
@@ -713,11 +734,11 @@ export default function AgentReconciliationPage() {
       console.log("🔍 About to update session state:", {
         beforeMatches: currentSession.matches.length,
         afterMatches: updatedSession.matches.length,
-        newMatch: newMatch
+        newMatch: newMatch,
       });
-      
+
       setCurrentSession(updatedSession);
-      
+
       console.log("🔍 Session state updated, should trigger re-render");
 
       // 4. Update UI state
@@ -731,13 +752,12 @@ export default function AgentReconciliationPage() {
       setManualMatchMode(false);
       setShowExplanationModal(false);
       setExplanationText("");
-      
     } catch (error) {
       console.error("❌ Manual match error:", error);
       setAgentMessage(
         `Error creating manual match: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
-      
+
       // Revert to the original session state on error
       setCurrentSession(originalSession);
     } finally {
@@ -789,11 +809,12 @@ export default function AgentReconciliationPage() {
       bank_data_length: currentSession?.bank_data?.length || 0,
       gl_data_length: currentSession?.gl_data?.length || 0,
       matches_length: currentSession?.matches?.length || 0,
-      matches: currentSession?.matches?.map(m => ({ 
-        bank_index: m.bank_index, 
-        status: m.status, 
-        gl_indexes: m.gl_indexes 
-      })) || [],
+      matches:
+        currentSession?.matches?.map((m) => ({
+          bank_index: m.bank_index,
+          status: m.status,
+          gl_indexes: m.gl_indexes,
+        })) || [],
     });
 
     if (
@@ -885,11 +906,11 @@ export default function AgentReconciliationPage() {
       activeGroups: activeGroups.length,
       rejectedGroups: rejectedGroups.length,
       unmatchedBankGroups: unmatchedBankGroups.length,
-      activeGroupsDetails: activeGroups.map(g => ({
+      activeGroupsDetails: activeGroups.map((g) => ({
         bankIndex: g.bankIndex,
         status: g.bankMatch?.status,
-        glEntriesCount: g.glEntries.length
-      }))
+        glEntriesCount: g.glEntries.length,
+      })),
     });
 
     // Find unmatched GL entries (not matched to any non-rejected match in the session)
@@ -914,7 +935,7 @@ export default function AgentReconciliationPage() {
     // Create separate unmatched entries for side-by-side display
     // Filter out bank entries that have matches
     const allUnmatchedGroups = [...rejectedGroups, ...unmatchedBankGroups];
-    
+
     const unmatchedBankEntries = allUnmatchedGroups
       .filter((group) => !matchedBankIndexes.has(group.bankIndex))
       .map((group) => ({
@@ -1743,7 +1764,9 @@ export default function AgentReconciliationPage() {
               <div className="flex space-x-4 pt-4">
                 <button
                   type="button"
-                  onClick={() => fetchMatchingDocuments(selectedMatch.bankIndex)}
+                  onClick={() =>
+                    fetchMatchingDocuments(selectedMatch.bankIndex)
+                  }
                   disabled={isLoadingDocuments}
                   className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
                 >
@@ -2115,7 +2138,8 @@ export default function AgentReconciliationPage() {
               {matchingDocuments.length > 0 ? (
                 <>
                   <p className="text-slate-300 text-sm">
-                    Found {matchingDocuments.length} document(s) that match this transaction:
+                    Found {matchingDocuments.length} document(s) that match this
+                    transaction:
                   </p>
                   {matchingDocuments.map((doc, index) => (
                     <div key={index} className="bg-slate-700 rounded-lg p-4">
@@ -2124,11 +2148,6 @@ export default function AgentReconciliationPage() {
                           📄 {doc.filename || "Unknown Document"}
                         </h4>
                         <div className="flex items-center space-x-2">
-                          {doc.match_reasons && (
-                            <span className="text-xs bg-blue-600 px-2 py-1 rounded">
-                              Match: {doc.match_reasons.join(", ")}
-                            </span>
-                          )}
                           {doc.confidence && (
                             <span className="text-xs bg-green-600 px-2 py-1 rounded">
                               {Math.round(doc.confidence * 100)}% confident
@@ -2146,24 +2165,28 @@ export default function AgentReconciliationPage() {
 
                       {doc.extraction && (
                         <div className="bg-slate-600 rounded p-3">
-                          <h5 className="text-white text-sm font-medium mb-2">Document Details:</h5>
+                          <h5 className="text-white text-sm font-medium mb-2">
+                            Document Details:
+                          </h5>
                           <div className="grid grid-cols-2 gap-3 text-sm">
-                            {Object.entries(doc.extraction).map(([key, value]) => (
-                              <div key={key}>
-                                <span className="text-slate-400 text-xs block">
-                                  {key.replace(/_/g, " ").toUpperCase()}:
-                                </span>
-                                <span className="text-white">
-                                  {String(value)}
-                                </span>
-                              </div>
-                            ))}
+                            {Object.entries(doc.extraction).map(
+                              ([key, value]) => (
+                                <div key={key}>
+                                  <span className="text-slate-400 text-xs block">
+                                    {key.replace(/_/g, " ").toUpperCase()}:
+                                  </span>
+                                  <span className="text-white">
+                                    {String(value)}
+                                  </span>
+                                </div>
+                              ),
+                            )}
                           </div>
                         </div>
                       )}
 
                       {doc.processing_notes && (
-                        <div className="mt-2 text-slate-400 text-xs">
+                        <div className="mt-2 text-slate-400 text-sm">
                           {doc.processing_notes}
                         </div>
                       )}
